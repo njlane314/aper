@@ -34,8 +34,8 @@ struct Colour {
 
 constexpr Colour paper{1.0, 1.0, 1.0};
 constexpr Colour ink{16.0 / 255.0, 22.0 / 255.0, 27.0 / 255.0};
-constexpr Colour limestone{231.0 / 255.0, 222.0 / 255.0, 205.0 / 255.0};
-constexpr Colour copper{200.0 / 255.0, 107.0 / 255.0, 74.0 / 255.0};
+constexpr Colour cobalt{36.0 / 255.0, 87.0 / 255.0, 230.0 / 255.0};
+constexpr Colour tangerine{1.0, 107.0 / 255.0, 53.0 / 255.0};
 
 void include(Bounds& bounds, Point point) {
     bounds.minimum_x = std::min(bounds.minimum_x, point.real());
@@ -62,7 +62,7 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     document += "endobj\n";
 }
 
-[[nodiscard]] bool limestone_fill(Shape shape) {
+[[nodiscard]] bool cobalt_fill(Shape shape) {
     return shape == Shape::kite || shape == Shape::thick_rhomb;
 }
 
@@ -102,10 +102,10 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     set_colour(content, ink, "RG");
     content << stroke_width << " w\n1 J\n1 j\n";
 
-    for (const auto use_limestone : {true, false}) {
-        set_colour(content, use_limestone ? limestone : copper, "rg");
+    for (const auto use_cobalt : {true, false}) {
+        set_colour(content, use_cobalt ? cobalt : tangerine, "rg");
         for (const auto& tile : tiles) {
-            if (limestone_fill(tile.shape) != use_limestone) {
+            if (cobalt_fill(tile.shape) != use_cobalt) {
                 continue;
             }
             content << page_x(tile.vertices[0]) << ' ' << page_y(tile.vertices[0])

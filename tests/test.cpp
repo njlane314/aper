@@ -192,8 +192,8 @@ void check_pdf(aper::Tiling tiling, std::string_view title) {
     CHECK(pdf.find("1.0000 1.0000 1.0000 rg\n0 0 720.0000 720.0000 re f") !=
           std::string::npos);
     CHECK(pdf.find("0.0627 0.0863 0.1059 RG") != std::string::npos);
-    CHECK(pdf.find("0.9059 0.8706 0.8039") != std::string::npos);
-    CHECK(pdf.find("0.7843 0.4196 0.2902") != std::string::npos);
+    CHECK(pdf.find("0.1412 0.3412 0.9020") != std::string::npos);
+    CHECK(pdf.find("1.0000 0.4196 0.2078") != std::string::npos);
     CHECK(pdf.find("nan") == std::string::npos);
     CHECK(pdf.find("inf") == std::string::npos);
     CHECK(occurrences(pdf, " m\n") == tiles.size());
