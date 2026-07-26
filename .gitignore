@@ -2,4 +2,4 @@
 /aper
 *.pdf
 *.png
-!doc/aper.png
+!doc/*.png

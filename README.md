@@ -27,11 +27,12 @@ aper -V | --version
 - `-h` or `--help` prints a concise help message.
 - `-V` or `--version` prints the version.
 
-For example:
+## Examples
 
-```sh
-./aper -n 6 > tiling.pdf
-```
+| Depth 2 | Depth 4 | Depth 6 |
+| :---: | :---: | :---: |
+| ![Penrose tiling at depth 2](doc/aper-2.png) | ![Penrose tiling at depth 4](doc/aper-4.png) | ![Penrose tiling at depth 6](doc/aper-6.png) |
+| `./aper -n 2 > tiling-2.pdf` | `./aper -n 4 > tiling-4.pdf` | `./aper -n 6 > tiling-6.pdf` |
 
 The same arguments produce the same PDF, making `aper` suitable for scripts,
 pipes, and generated documents.
