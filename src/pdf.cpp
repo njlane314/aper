@@ -32,7 +32,8 @@ struct Colour {
     double blue;
 };
 
-constexpr Colour canvas{16.0 / 255.0, 22.0 / 255.0, 27.0 / 255.0};
+constexpr Colour paper{1.0, 1.0, 1.0};
+constexpr Colour ink{16.0 / 255.0, 22.0 / 255.0, 27.0 / 255.0};
 constexpr Colour limestone{231.0 / 255.0, 222.0 / 255.0, 205.0 / 255.0};
 constexpr Colour copper{200.0 / 255.0, 107.0 / 255.0, 74.0 / 255.0};
 
@@ -87,9 +88,9 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     std::ostringstream content;
     content.imbue(std::locale::classic());
     content << std::fixed << std::setprecision(4) << "q\n";
-    set_colour(content, canvas, "rg");
+    set_colour(content, paper, "rg");
     content << "0 0 " << page_size << ' ' << page_size << " re f\n";
-    set_colour(content, canvas, "RG");
+    set_colour(content, ink, "RG");
     content << stroke_width << " w\n1 J\n1 j\n";
 
     for (const auto kind : {Kind::thick, Kind::thin}) {
