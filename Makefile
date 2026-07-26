@@ -45,14 +45,24 @@ $(BUILD):
 check: $(PROGRAM) $(BUILD)/aper-test
 	./$(BUILD)/aper-test
 	@./$(PROGRAM) -h | grep -q '^usage: aper'
-	@./$(PROGRAM) -V | grep -q '^aper 0\.2\.0$$'
+	@./$(PROGRAM) -V | grep -q '^aper 0\.3\.0$$'
 	@./$(PROGRAM) -t p2 -n 1 | grep -a -q '%%EOF'
 	@./$(PROGRAM) -t p3 -n 1 | grep -a -q '%%EOF'
+	@for scheme in flare grove electric tide; do \
+		./$(PROGRAM) -c $$scheme -n 1 | grep -a -q '%%EOF' || exit 1; \
+	done
+	@./$(PROGRAM) --colour=tide -n 1 | grep -a -q '%%EOF'
 	@if ./$(PROGRAM) -n 0 >/dev/null 2>&1; then \
 		echo 'aper accepted an invalid depth' >&2; exit 1; \
 	fi
 	@if ./$(PROGRAM) -t square >/dev/null 2>&1; then \
 		echo 'aper accepted an invalid tiling' >&2; exit 1; \
+	fi
+	@if ./$(PROGRAM) -c sepia >/dev/null 2>&1; then \
+		echo 'aper accepted an invalid colour scheme' >&2; exit 1; \
+	fi
+	@if ./$(PROGRAM) --colour >/dev/null 2>&1; then \
+		echo 'aper accepted a missing colour scheme' >&2; exit 1; \
 	fi
 
 install: $(PROGRAM)

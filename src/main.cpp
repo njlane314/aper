@@ -11,22 +11,42 @@
 
 namespace {
 
-constexpr std::string_view version = "0.2.0";
+constexpr std::string_view version = "0.3.0";
 
 struct Options {
     aper::Tiling tiling = aper::Tiling::p3;
+    aper::ColourScheme colour_scheme = aper::default_colour_scheme;
     unsigned depth = aper::default_depth;
 };
 
 void help(std::ostream& output) {
-    output << "usage: aper [-t p2|p3] [-n depth]\n"
+    output << "usage: aper [-t p2|p3] [-c scheme] [-n depth]\n"
               "\n"
               "Draw a finite P2 or P3 Penrose tiling as PDF.\n"
               "\n"
               "  -t, --tiling TYPE  p2 kite-and-dart or p3 rhombs (default: p3)\n"
+              "  -c, --colour NAME  flare, grove, electric, or tide\n"
+              "                     (default: flare)\n"
               "  -n, --depth N      subdivide N times (1-12; default: 7)\n"
               "  -h, --help         show this help\n"
               "  -V, --version      show the version\n";
+}
+
+[[nodiscard]] aper::ColourScheme parse_colour_scheme(std::string_view text) {
+    if (text == "flare") {
+        return aper::ColourScheme::flare;
+    }
+    if (text == "grove") {
+        return aper::ColourScheme::grove;
+    }
+    if (text == "electric") {
+        return aper::ColourScheme::electric;
+    }
+    if (text == "tide") {
+        return aper::ColourScheme::tide;
+    }
+    throw std::invalid_argument(
+        "colour scheme must be flare, grove, electric, or tide");
 }
 
 [[nodiscard]] aper::Tiling parse_tiling(std::string_view text) {
@@ -62,6 +82,19 @@ void help(std::ostream& output) {
         if (argument == "-V" || argument == "--version") {
             std::cout << "aper " << version << '\n';
             std::exit(0);
+        }
+        if (argument == "-c" || argument == "--colour") {
+            if (++i == argc) {
+                throw std::invalid_argument(
+                    argument == "-c" ? "option -c requires a colour scheme"
+                                     : "option --colour requires a colour scheme");
+            }
+            options.colour_scheme = parse_colour_scheme(argv[i]);
+            continue;
+        }
+        if (argument.starts_with("--colour=")) {
+            options.colour_scheme = parse_colour_scheme(argument.substr(9));
+            continue;
         }
         if (argument == "-t" || argument == "--tiling") {
             if (++i == argc) {
@@ -110,7 +143,8 @@ int main(int argc, char** argv) {
         const auto options = parse_options(argc, argv);
         const auto triangles = aper::generate(options.tiling, options.depth);
         const auto tiles = aper::pair_tiles(triangles, options.tiling);
-        aper::write_pdf(std::cout, tiles, options.tiling, options.depth);
+        aper::write_pdf(std::cout, tiles, options.tiling, options.colour_scheme,
+                        options.depth);
         if (!std::cout) {
             throw std::runtime_error("could not write PDF to standard output");
         }

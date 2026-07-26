@@ -32,10 +32,44 @@ struct Colour {
     double blue;
 };
 
+struct Scheme {
+    std::string_view name;
+    Colour primary;
+    Colour secondary;
+};
+
 constexpr Colour paper{1.0, 1.0, 1.0};
 constexpr Colour ink{16.0 / 255.0, 22.0 / 255.0, 27.0 / 255.0};
-constexpr Colour cobalt{36.0 / 255.0, 87.0 / 255.0, 230.0 / 255.0};
-constexpr Colour tangerine{1.0, 107.0 / 255.0, 53.0 / 255.0};
+
+[[nodiscard]] Scheme scheme(ColourScheme colour_scheme) {
+    switch (colour_scheme) {
+    case ColourScheme::flare:
+        return {
+            "flare",
+            {49.0 / 255.0, 87.0 / 255.0, 213.0 / 255.0},
+            {1.0, 99.0 / 255.0, 61.0 / 255.0},
+        };
+    case ColourScheme::grove:
+        return {
+            "grove",
+            {0.0, 138.0 / 255.0, 90.0 / 255.0},
+            {1.0, 193.0 / 255.0, 69.0 / 255.0},
+        };
+    case ColourScheme::electric:
+        return {
+            "electric",
+            {113.0 / 255.0, 55.0 / 255.0, 200.0 / 255.0},
+            {180.0 / 255.0, 214.0 / 255.0, 0.0},
+        };
+    case ColourScheme::tide:
+        return {
+            "tide",
+            {216.0 / 255.0, 27.0 / 255.0, 96.0 / 255.0},
+            {0.0, 167.0 / 255.0, 196.0 / 255.0},
+        };
+    }
+    throw std::invalid_argument("unknown colour scheme");
+}
 
 void include(Bounds& bounds, Point point) {
     bounds.minimum_x = std::min(bounds.minimum_x, point.real());
@@ -62,11 +96,12 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     document += "endobj\n";
 }
 
-[[nodiscard]] bool cobalt_fill(Shape shape) {
+[[nodiscard]] bool primary_fill(Shape shape) {
     return shape == Shape::kite || shape == Shape::thick_rhomb;
 }
 
-[[nodiscard]] std::string content_stream(std::span<const Tile> tiles) {
+[[nodiscard]] std::string content_stream(std::span<const Tile> tiles,
+                                         const Scheme& colours) {
     Bounds bounds;
     double shortest_edge = std::numeric_limits<double>::max();
     for (const auto& tile : tiles) {
@@ -102,10 +137,10 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     set_colour(content, ink, "RG");
     content << stroke_width << " w\n1 J\n1 j\n";
 
-    for (const auto use_cobalt : {true, false}) {
-        set_colour(content, use_cobalt ? cobalt : tangerine, "rg");
+    for (const auto use_primary : {true, false}) {
+        set_colour(content, use_primary ? colours.primary : colours.secondary, "rg");
         for (const auto& tile : tiles) {
-            if (cobalt_fill(tile.shape) != use_cobalt) {
+            if (primary_fill(tile.shape) != use_primary) {
                 continue;
             }
             content << page_x(tile.vertices[0]) << ' ' << page_y(tile.vertices[0])
@@ -123,8 +158,9 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
 }
 
 [[nodiscard]] std::string make_pdf(std::span<const Tile> tiles, Tiling tiling,
-                                   unsigned depth) {
-    const auto content = content_stream(tiles);
+                                   ColourScheme colour_scheme, unsigned depth) {
+    const auto colours = scheme(colour_scheme);
+    const auto content = content_stream(tiles, colours);
     std::vector<std::size_t> offsets(6);
     std::string document{"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"};
 
@@ -141,10 +177,10 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     append_object(document, offsets, 4, stream_object);
 
     const auto family = tiling == Tiling::p2 ? "P2" : "P3";
-    const auto subject = "<< /Title (" + std::string(family) +
-                         " Penrose tiling) /Creator (aper 0.2.0) "
-                         "/Subject (Sun seed at depth " +
-                         std::to_string(depth) + ") >>";
+    const auto subject =
+        "<< /Title (" + std::string(family) +
+        " Penrose tiling) /Creator (aper 0.3.0) /Subject (Sun seed at depth " +
+        std::to_string(depth) + "; " + std::string(colours.name) + " colour scheme) >>";
     append_object(document, offsets, 5, subject);
 
     const auto xref_offset = document.size();
@@ -165,12 +201,12 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
 } // namespace
 
 void write_pdf(std::ostream& output, std::span<const Tile> tiles, Tiling tiling,
-               unsigned depth) {
+               ColourScheme colour_scheme, unsigned depth) {
     if (tiles.empty()) {
         throw std::invalid_argument("cannot render an empty tiling");
     }
 
-    const auto document = make_pdf(tiles, tiling, depth);
+    const auto document = make_pdf(tiles, tiling, colour_scheme, depth);
     output.write(document.data(), static_cast<std::streamsize>(document.size()));
 }
 

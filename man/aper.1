@@ -4,6 +4,7 @@ aper \- render Penrose tilings as PDF
 .SH SYNOPSIS
 .B aper
 .RB [ \-t " p2|p3" ]
+.RB [ \-c " scheme" ]
 .RB [ \-n " depth" ]
 .br
 .BR aper " " { \-h | \-\-help }
@@ -27,6 +28,17 @@ for thin and thick rhombs.
 The default is
 .BR p3 .
 .TP
+.BR \-c ", " \-\-colour " " scheme
+Select one of the
+.BR flare ,
+.BR grove ,
+.BR electric ,
+or
+.B tide
+colour schemes.
+The default is
+.BR flare .
+.TP
 .BR \-n ", " \-\-depth " " depth
 Set the number of subdivisions to an integer from 1 through 12.
 The default is 7.
@@ -44,10 +56,10 @@ aper > tiling.pdf
 open tiling.pdf
 .EE
 .PP
-Render a P2 kite-and-dart tiling:
+Render a P2 kite-and-dart tiling using the electric colour scheme:
 .PP
 .EX
-aper -t p2 -n 5 > p2.pdf
+aper -t p2 -c electric -n 5 > p2.pdf
 .EE
 .SH EXIT STATUS
 .B aper

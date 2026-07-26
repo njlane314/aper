@@ -171,29 +171,38 @@ void test_kite_and_dart_geometry() {
     CHECK(close(kite_area / dart_area, std::numbers::phi, 1.0e-8));
 }
 
-void check_pdf(aper::Tiling tiling, std::string_view title) {
+struct ColourFixture {
+    aper::ColourScheme scheme;
+    std::string_view name;
+    std::string_view primary;
+    std::string_view secondary;
+};
+
+[[nodiscard]] std::string check_pdf(aper::Tiling tiling, std::string_view title,
+                                    const ColourFixture& colours) {
     const auto triangles = aper::generate(tiling, 3);
     const auto tiles = aper::pair_tiles(triangles, tiling);
 
     std::ostringstream first;
     std::ostringstream second;
-    aper::write_pdf(first, tiles, tiling, 3);
-    aper::write_pdf(second, tiles, tiling, 3);
+    aper::write_pdf(first, tiles, tiling, colours.scheme, 3);
+    aper::write_pdf(second, tiles, tiling, colours.scheme, 3);
 
     const auto pdf = first.str();
     CHECK(pdf == second.str());
     CHECK(pdf.starts_with("%PDF-1.4\n"));
     CHECK(pdf.ends_with("%%EOF\n"));
     CHECK(pdf.find(title) != std::string::npos);
-    CHECK(pdf.find("/Creator (aper 0.2.0)") != std::string::npos);
+    CHECK(pdf.find("/Creator (aper 0.3.0)") != std::string::npos);
     CHECK(pdf.find("/MediaBox [0 0 720 720]") != std::string::npos);
     CHECK(pdf.find("/Resources << >>") != std::string::npos);
-    CHECK(pdf.find("/Subject (Sun seed at depth 3)") != std::string::npos);
+    CHECK(pdf.find("/Subject (Sun seed at depth 3; " + std::string(colours.name) +
+                   " colour scheme)") != std::string::npos);
     CHECK(pdf.find("1.0000 1.0000 1.0000 rg\n0 0 720.0000 720.0000 re f") !=
           std::string::npos);
     CHECK(pdf.find("0.0627 0.0863 0.1059 RG") != std::string::npos);
-    CHECK(pdf.find("0.1412 0.3412 0.9020") != std::string::npos);
-    CHECK(pdf.find("1.0000 0.4196 0.2078") != std::string::npos);
+    CHECK(pdf.find(colours.primary) != std::string::npos);
+    CHECK(pdf.find(colours.secondary) != std::string::npos);
     CHECK(pdf.find("nan") == std::string::npos);
     CHECK(pdf.find("inf") == std::string::npos);
     CHECK(occurrences(pdf, " m\n") == tiles.size());
@@ -226,11 +235,32 @@ void check_pdf(aper::Tiling tiling, std::string_view title) {
         CHECK(offset != std::string::npos);
         CHECK(pdf.find(encoded.str(), xref) != std::string::npos);
     }
+
+    return pdf;
 }
 
 void test_pdf() {
-    check_pdf(aper::Tiling::p2, "/Title (P2 Penrose tiling)");
-    check_pdf(aper::Tiling::p3, "/Title (P3 Penrose tiling)");
+    constexpr std::array schemes{
+        ColourFixture{aper::ColourScheme::flare, "flare", "0.1922 0.3412 0.8353",
+                      "1.0000 0.3882 0.2392"},
+        ColourFixture{aper::ColourScheme::grove, "grove", "0.0000 0.5412 0.3529",
+                      "1.0000 0.7569 0.2706"},
+        ColourFixture{aper::ColourScheme::electric, "electric", "0.4431 0.2157 0.7843",
+                      "0.7059 0.8392 0.0000"},
+        ColourFixture{aper::ColourScheme::tide, "tide", "0.8471 0.1059 0.3765",
+                      "0.0000 0.6549 0.7686"},
+    };
+
+    std::string previous;
+    for (const auto& colours : schemes) {
+        const auto pdf =
+            check_pdf(aper::Tiling::p2, "/Title (P2 Penrose tiling)", colours);
+        if (!previous.empty()) {
+            CHECK(pdf != previous);
+        }
+        previous = pdf;
+    }
+    check_pdf(aper::Tiling::p3, "/Title (P3 Penrose tiling)", schemes.front());
 }
 
 } // namespace
