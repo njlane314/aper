@@ -62,11 +62,20 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     document += "endobj\n";
 }
 
-[[nodiscard]] std::string content_stream(std::span<const Rhomb> rhombs) {
+[[nodiscard]] bool limestone_fill(Shape shape) {
+    return shape == Shape::kite || shape == Shape::thick_rhomb;
+}
+
+[[nodiscard]] std::string content_stream(std::span<const Tile> tiles) {
     Bounds bounds;
-    for (const auto& rhomb : rhombs) {
-        for (const auto vertex : rhomb.vertices) {
+    double shortest_edge = std::numeric_limits<double>::max();
+    for (const auto& tile : tiles) {
+        for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+            const auto vertex = tile.vertices[i];
             include(bounds, vertex);
+            shortest_edge = std::min(
+                shortest_edge,
+                std::abs(tile.vertices[(i + 1) % tile.vertices.size()] - vertex));
         }
     }
 
@@ -79,8 +88,8 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     const auto view_x = centre_x - view_span / 2.0;
     const auto view_y = centre_y - view_span / 2.0;
     const auto scale = page_size / view_span;
-    const auto edge = std::abs(rhombs.front().vertices[1] - rhombs.front().vertices[0]);
-    const auto stroke_width = std::max(edge * scale * 0.04, page_size / 1800.0);
+    const auto stroke_width =
+        std::max(shortest_edge * scale * 0.04, page_size / 1800.0);
 
     const auto page_x = [=](Point point) { return (point.real() - view_x) * scale; };
     const auto page_y = [=](Point point) { return (point.imag() - view_y) * scale; };
@@ -93,16 +102,16 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     set_colour(content, ink, "RG");
     content << stroke_width << " w\n1 J\n1 j\n";
 
-    for (const auto kind : {Kind::thick, Kind::thin}) {
-        set_colour(content, kind == Kind::thick ? limestone : copper, "rg");
-        for (const auto& rhomb : rhombs) {
-            if (rhomb.kind != kind) {
+    for (const auto use_limestone : {true, false}) {
+        set_colour(content, use_limestone ? limestone : copper, "rg");
+        for (const auto& tile : tiles) {
+            if (limestone_fill(tile.shape) != use_limestone) {
                 continue;
             }
-            content << page_x(rhomb.vertices[0]) << ' ' << page_y(rhomb.vertices[0])
+            content << page_x(tile.vertices[0]) << ' ' << page_y(tile.vertices[0])
                     << " m\n";
-            for (std::size_t i = 1; i < rhomb.vertices.size(); ++i) {
-                content << page_x(rhomb.vertices[i]) << ' ' << page_y(rhomb.vertices[i])
+            for (std::size_t i = 1; i < tile.vertices.size(); ++i) {
+                content << page_x(tile.vertices[i]) << ' ' << page_y(tile.vertices[i])
                         << " l\n";
             }
             content << "b\n";
@@ -113,8 +122,9 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     return content.str();
 }
 
-[[nodiscard]] std::string make_pdf(std::span<const Rhomb> rhombs, unsigned depth) {
-    const auto content = content_stream(rhombs);
+[[nodiscard]] std::string make_pdf(std::span<const Tile> tiles, Tiling tiling,
+                                   unsigned depth) {
+    const auto content = content_stream(tiles);
     std::vector<std::size_t> offsets(6);
     std::string document{"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"};
 
@@ -130,7 +140,9 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
                                 " >>\nstream\n" + content + "endstream";
     append_object(document, offsets, 4, stream_object);
 
-    const auto subject = "<< /Title (P3 Penrose tiling) /Creator (aper 0.1.0) "
+    const auto family = tiling == Tiling::p2 ? "P2" : "P3";
+    const auto subject = "<< /Title (" + std::string(family) +
+                         " Penrose tiling) /Creator (aper 0.2.0) "
                          "/Subject (Sun seed at depth " +
                          std::to_string(depth) + ") >>";
     append_object(document, offsets, 5, subject);
@@ -152,12 +164,13 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
 
 } // namespace
 
-void write_pdf(std::ostream& output, std::span<const Rhomb> rhombs, unsigned depth) {
-    if (rhombs.empty()) {
+void write_pdf(std::ostream& output, std::span<const Tile> tiles, Tiling tiling,
+               unsigned depth) {
+    if (tiles.empty()) {
         throw std::invalid_argument("cannot render an empty tiling");
     }
 
-    const auto document = make_pdf(rhombs, depth);
+    const auto document = make_pdf(tiles, tiling, depth);
     output.write(document.data(), static_cast<std::streamsize>(document.size()));
 }
 

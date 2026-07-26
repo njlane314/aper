@@ -11,20 +11,32 @@
 
 namespace {
 
-constexpr std::string_view version = "0.1.0";
+constexpr std::string_view version = "0.2.0";
 
 struct Options {
+    aper::Tiling tiling = aper::Tiling::p3;
     unsigned depth = aper::default_depth;
 };
 
 void help(std::ostream& output) {
-    output << "usage: aper [-n depth]\n"
+    output << "usage: aper [-t p2|p3] [-n depth]\n"
               "\n"
-              "Draw a finite P3 Penrose tiling as PDF.\n"
+              "Draw a finite P2 or P3 Penrose tiling as PDF.\n"
               "\n"
-              "  -n, --depth N   subdivide N times (1-12; default: 7)\n"
-              "  -h, --help      show this help\n"
-              "  -V, --version   show the version\n";
+              "  -t, --tiling TYPE  p2 kite-and-dart or p3 rhombs (default: p3)\n"
+              "  -n, --depth N      subdivide N times (1-12; default: 7)\n"
+              "  -h, --help         show this help\n"
+              "  -V, --version      show the version\n";
+}
+
+[[nodiscard]] aper::Tiling parse_tiling(std::string_view text) {
+    if (text == "p2") {
+        return aper::Tiling::p2;
+    }
+    if (text == "p3") {
+        return aper::Tiling::p3;
+    }
+    throw std::invalid_argument("tiling must be p2 or p3");
 }
 
 [[nodiscard]] unsigned parse_depth(std::string_view text) {
@@ -50,6 +62,19 @@ void help(std::ostream& output) {
         if (argument == "-V" || argument == "--version") {
             std::cout << "aper " << version << '\n';
             std::exit(0);
+        }
+        if (argument == "-t" || argument == "--tiling") {
+            if (++i == argc) {
+                throw std::invalid_argument(argument == "-t"
+                                                ? "option -t requires a tiling"
+                                                : "option --tiling requires a tiling");
+            }
+            options.tiling = parse_tiling(argv[i]);
+            continue;
+        }
+        if (argument.starts_with("--tiling=")) {
+            options.tiling = parse_tiling(argument.substr(9));
+            continue;
         }
         if (argument == "-n" || argument == "--depth") {
             if (++i == argc) {
@@ -83,9 +108,9 @@ void help(std::ostream& output) {
 int main(int argc, char** argv) {
     try {
         const auto options = parse_options(argc, argv);
-        const auto halves = aper::generate(options.depth);
-        const auto rhombs = aper::pair_rhombs(halves);
-        aper::write_pdf(std::cout, rhombs, options.depth);
+        const auto triangles = aper::generate(options.tiling, options.depth);
+        const auto tiles = aper::pair_tiles(triangles, options.tiling);
+        aper::write_pdf(std::cout, tiles, options.tiling, options.depth);
         if (!std::cout) {
             throw std::runtime_error("could not write PDF to standard output");
         }

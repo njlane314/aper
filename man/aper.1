@@ -3,6 +3,7 @@
 aper \- render Penrose tilings as PDF
 .SH SYNOPSIS
 .B aper
+.RB [ \-t " p2|p3" ]
 .RB [ \-n " depth" ]
 .br
 .BR aper " " { \-h | \-\-help }
@@ -10,12 +11,21 @@ aper \- render Penrose tilings as PDF
 .BR aper " " { \-V | \-\-version }
 .SH DESCRIPTION
 .B aper
-generates a finite P3 Penrose tiling from a fixed ten-triangle sun seed
-by Robinson subdivision and writes a complete native vector PDF to standard
-output.
+generates a finite P2 kite-and-dart or P3 rhomb Penrose tiling from a fixed
+ten-triangle sun seed by Robinson subdivision and writes a complete native
+vector PDF to standard output.
 Diagnostics are written to standard error, so the PDF can be redirected or
 piped without contamination.
 .SH OPTIONS
+.TP
+.BR \-t ", " \-\-tiling " " type
+Select
+.B p2
+for kite-and-dart tiles or
+.B p3
+for thin and thick rhombs.
+The default is
+.BR p3 .
 .TP
 .BR \-n ", " \-\-depth " " depth
 Set the number of subdivisions to an integer from 1 through 12.
@@ -32,6 +42,12 @@ Render the default tiling and open it:
 .EX
 aper > tiling.pdf
 open tiling.pdf
+.EE
+.PP
+Render a P2 kite-and-dart tiling:
+.PP
+.EX
+aper -t p2 -n 5 > p2.pdf
 .EE
 .SH EXIT STATUS
 .B aper

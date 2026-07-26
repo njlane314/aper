@@ -14,28 +14,42 @@ inline constexpr unsigned default_depth = 7;
 inline constexpr unsigned minimum_depth = 1;
 inline constexpr unsigned maximum_depth = 12;
 
-enum class Kind {
-    thin,
-    thick,
+enum class Tiling {
+    p2,
+    p3,
 };
 
-struct HalfRhomb {
-    Kind kind;
-    // The base is the diagonal shared by the two halves of a complete rhomb.
+enum class TriangleKind {
+    acute,
+    obtuse,
+};
+
+enum class Shape {
+    kite,
+    dart,
+    thin_rhomb,
+    thick_rhomb,
+};
+
+struct RobinsonTriangle {
+    TriangleKind kind;
+    // The ordered base endpoints retain the triangle's handedness.
     Point apex;
     Point base_a;
     Point base_b;
 };
 
-struct Rhomb {
-    Kind kind;
+struct Tile {
+    Shape shape;
     std::array<Point, 4> vertices;
 };
 
-[[nodiscard]] std::vector<HalfRhomb> sun_seed();
-[[nodiscard]] std::vector<HalfRhomb> subdivide(std::span<const HalfRhomb> halves);
-[[nodiscard]] std::vector<HalfRhomb> generate(unsigned depth);
-[[nodiscard]] std::vector<Rhomb> pair_rhombs(std::span<const HalfRhomb> halves);
-[[nodiscard]] std::size_t predicted_half_count(unsigned depth);
+[[nodiscard]] std::vector<RobinsonTriangle> sun_seed();
+[[nodiscard]] std::vector<RobinsonTriangle>
+subdivide(std::span<const RobinsonTriangle> triangles, Tiling tiling);
+[[nodiscard]] std::vector<RobinsonTriangle> generate(Tiling tiling, unsigned depth);
+[[nodiscard]] std::vector<Tile> pair_tiles(std::span<const RobinsonTriangle> triangles,
+                                           Tiling tiling);
+[[nodiscard]] std::size_t predicted_triangle_count(Tiling tiling, unsigned depth);
 
 } // namespace aper

@@ -1,6 +1,7 @@
 #include "pdf.hpp"
 #include "penrose.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
@@ -32,17 +33,23 @@ int failures = 0;
     return a.real() * b.imag() - a.imag() * b.real();
 }
 
-[[nodiscard]] double area(const aper::HalfRhomb& half) {
-    return std::abs(cross(half.base_a - half.apex, half.base_b - half.apex)) / 2.0;
+[[nodiscard]] double area(const aper::RobinsonTriangle& triangle) {
+    return std::abs(cross(triangle.base_a - triangle.apex,
+                          triangle.base_b - triangle.apex)) /
+           2.0;
 }
 
-[[nodiscard]] double area(const aper::Rhomb& rhomb) {
+[[nodiscard]] double signed_area(const aper::Tile& tile) {
     double twice_area = 0.0;
-    for (std::size_t i = 0; i < rhomb.vertices.size(); ++i) {
+    for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
         twice_area +=
-            cross(rhomb.vertices[i], rhomb.vertices[(i + 1) % rhomb.vertices.size()]);
+            cross(tile.vertices[i], tile.vertices[(i + 1) % tile.vertices.size()]);
     }
-    return std::abs(twice_area) / 2.0;
+    return twice_area / 2.0;
+}
+
+[[nodiscard]] double turn(aper::Point a, aper::Point b, aper::Point c) {
+    return cross(b - a, c - b);
 }
 
 [[nodiscard]] std::size_t occurrences(const std::string& text,
@@ -55,69 +62,130 @@ int failures = 0;
     return count;
 }
 
-void test_counts_and_area() {
-    constexpr std::array<std::size_t, 8> half_counts{
-        10, 20, 50, 130, 340, 890, 2330, 6100,
-    };
-    constexpr std::array<std::size_t, 8> rhomb_counts{
-        0, 10, 20, 60, 160, 430, 1140, 3010,
-    };
-
-    auto halves = aper::sun_seed();
+template <std::size_t Size>
+void check_counts_and_area(aper::Tiling tiling,
+                           const std::array<std::size_t, Size>& triangle_counts,
+                           const std::array<std::size_t, Size>& tile_counts) {
+    auto triangles = aper::sun_seed();
     const auto expected_area = 5.0 * std::sin(std::numbers::pi / 5.0);
 
-    for (unsigned depth = 0; depth < half_counts.size(); ++depth) {
-        CHECK(halves.size() == half_counts[depth]);
-        CHECK(aper::predicted_half_count(depth) == half_counts[depth]);
+    for (unsigned depth = 0; depth < triangle_counts.size(); ++depth) {
+        CHECK(triangles.size() == triangle_counts[depth]);
+        CHECK(aper::predicted_triangle_count(tiling, depth) == triangle_counts[depth]);
 
         double total_area = 0.0;
-        for (const auto& half : halves) {
-            total_area += area(half);
+        for (const auto& triangle : triangles) {
+            total_area += area(triangle);
         }
         CHECK(close(total_area, expected_area, 1.0e-8));
 
-        const auto rhombs = aper::pair_rhombs(halves);
-        CHECK(rhombs.size() == rhomb_counts[depth]);
+        const auto tiles = aper::pair_tiles(triangles, tiling);
+        CHECK(tiles.size() == tile_counts[depth]);
 
-        if (depth + 1 < half_counts.size()) {
-            halves = aper::subdivide(halves);
+        if (depth + 1 < triangle_counts.size()) {
+            triangles = aper::subdivide(triangles, tiling);
         }
     }
+}
 
-    CHECK(aper::predicted_half_count(12) == 750250);
+void test_counts_and_area() {
+    constexpr std::array<std::size_t, 8> p2_triangle_counts{
+        10, 30, 80, 210, 550, 1440, 3770, 9870,
+    };
+    constexpr std::array<std::size_t, 8> p2_tile_counts{
+        5, 15, 35, 95, 265, 705, 1855, 4885,
+    };
+    constexpr std::array<std::size_t, 8> p3_triangle_counts{
+        10, 20, 50, 130, 340, 890, 2330, 6100,
+    };
+    constexpr std::array<std::size_t, 8> p3_tile_counts{
+        0, 10, 20, 60, 160, 430, 1140, 3010,
+    };
+
+    check_counts_and_area(aper::Tiling::p2, p2_triangle_counts, p2_tile_counts);
+    check_counts_and_area(aper::Tiling::p3, p3_triangle_counts, p3_tile_counts);
+
+    CHECK(aper::predicted_triangle_count(aper::Tiling::p2, 12) == 1213930);
+    CHECK(aper::predicted_triangle_count(aper::Tiling::p3, 12) == 750250);
 }
 
 void test_rhomb_geometry() {
-    const auto halves = aper::generate(7);
-    const auto rhombs = aper::pair_rhombs(halves);
-    CHECK(!rhombs.empty());
+    const auto triangles = aper::generate(aper::Tiling::p3, 7);
+    const auto tiles = aper::pair_tiles(triangles, aper::Tiling::p3);
+    CHECK(!tiles.empty());
 
-    for (const auto& rhomb : rhombs) {
+    for (const auto& tile : tiles) {
         std::array<double, 4> sides{};
-        for (std::size_t i = 0; i < rhomb.vertices.size(); ++i) {
-            sides[i] = std::abs(rhomb.vertices[(i + 1) % rhomb.vertices.size()] -
-                                rhomb.vertices[i]);
+        for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+            sides[i] = std::abs(tile.vertices[(i + 1) % tile.vertices.size()] -
+                                tile.vertices[i]);
         }
         for (const auto side : sides) {
             CHECK(close(side, sides.front(), 1.0e-9));
         }
-        CHECK(area(rhomb) > 0.0);
+        CHECK(signed_area(tile) > 0.0);
     }
 }
 
-void test_pdf() {
-    const auto halves = aper::generate(3);
-    const auto rhombs = aper::pair_rhombs(halves);
+void test_kite_and_dart_geometry() {
+    const auto triangles = aper::generate(aper::Tiling::p2, 5);
+    const auto tiles = aper::pair_tiles(triangles, aper::Tiling::p2);
+    CHECK(!tiles.empty());
+
+    double kite_area = 0.0;
+    double dart_area = 0.0;
+    std::size_t kites = 0;
+    std::size_t darts = 0;
+
+    for (const auto& tile : tiles) {
+        std::array<double, 4> sides{};
+        unsigned reflex_turns = 0;
+        for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+            sides[i] = std::abs(tile.vertices[(i + 1) % tile.vertices.size()] -
+                                tile.vertices[i]);
+            if (turn(tile.vertices[(i + 3) % tile.vertices.size()], tile.vertices[i],
+                     tile.vertices[(i + 1) % tile.vertices.size()]) < 0.0) {
+                ++reflex_turns;
+            }
+        }
+        std::sort(sides.begin(), sides.end());
+        CHECK(close(sides[0], sides[1], 1.0e-9));
+        CHECK(close(sides[2], sides[3], 1.0e-9));
+        CHECK(close(sides[2] / sides[0], std::numbers::phi, 1.0e-8));
+        CHECK(signed_area(tile) > 0.0);
+
+        if (tile.shape == aper::Shape::kite) {
+            ++kites;
+            kite_area = signed_area(tile);
+            CHECK(reflex_turns == 0);
+        } else {
+            CHECK(tile.shape == aper::Shape::dart);
+            ++darts;
+            dart_area = signed_area(tile);
+            CHECK(reflex_turns == 1);
+        }
+    }
+
+    CHECK(kites == 440);
+    CHECK(darts == 265);
+    CHECK(close(kite_area / dart_area, std::numbers::phi, 1.0e-8));
+}
+
+void check_pdf(aper::Tiling tiling, std::string_view title) {
+    const auto triangles = aper::generate(tiling, 3);
+    const auto tiles = aper::pair_tiles(triangles, tiling);
 
     std::ostringstream first;
     std::ostringstream second;
-    aper::write_pdf(first, rhombs, 3);
-    aper::write_pdf(second, rhombs, 3);
+    aper::write_pdf(first, tiles, tiling, 3);
+    aper::write_pdf(second, tiles, tiling, 3);
 
     const auto pdf = first.str();
     CHECK(pdf == second.str());
     CHECK(pdf.starts_with("%PDF-1.4\n"));
     CHECK(pdf.ends_with("%%EOF\n"));
+    CHECK(pdf.find(title) != std::string::npos);
+    CHECK(pdf.find("/Creator (aper 0.2.0)") != std::string::npos);
     CHECK(pdf.find("/MediaBox [0 0 720 720]") != std::string::npos);
     CHECK(pdf.find("/Resources << >>") != std::string::npos);
     CHECK(pdf.find("/Subject (Sun seed at depth 3)") != std::string::npos);
@@ -128,7 +196,7 @@ void test_pdf() {
     CHECK(pdf.find("0.7843 0.4196 0.2902") != std::string::npos);
     CHECK(pdf.find("nan") == std::string::npos);
     CHECK(pdf.find("inf") == std::string::npos);
-    CHECK(occurrences(pdf, " m\n") == rhombs.size());
+    CHECK(occurrences(pdf, " m\n") == tiles.size());
 
     const auto length_marker = pdf.find("/Length ");
     const auto length_start = length_marker + std::string_view{"/Length "}.size();
@@ -160,11 +228,17 @@ void test_pdf() {
     }
 }
 
+void test_pdf() {
+    check_pdf(aper::Tiling::p2, "/Title (P2 Penrose tiling)");
+    check_pdf(aper::Tiling::p3, "/Title (P3 Penrose tiling)");
+}
+
 } // namespace
 
 int main() {
     test_counts_and_area();
     test_rhomb_geometry();
+    test_kite_and_dart_geometry();
     test_pdf();
 
     if (failures != 0) {
