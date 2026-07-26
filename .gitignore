@@ -1,0 +1,5 @@
+/.build/
+/aper
+*.pdf
+*.png
+!doc/aper.png

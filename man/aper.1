@@ -1,0 +1,39 @@
+.TH APER 1 "July 26, 2026" "aper" "User Commands"
+.SH NAME
+aper \- render Penrose tilings as PDF
+.SH SYNOPSIS
+.B aper
+.RB [ \-n " depth" ]
+.br
+.BR aper " " { \-h | \-\-help }
+.br
+.BR aper " " { \-V | \-\-version }
+.SH DESCRIPTION
+.B aper
+generates a finite P3 Penrose tiling from a fixed ten-triangle sun seed
+by Robinson subdivision and writes a complete native vector PDF to standard
+output.
+Diagnostics are written to standard error, so the PDF can be redirected or
+piped without contamination.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-depth " " depth
+Set the number of subdivisions to an integer from 1 through 12.
+The default is 7.
+.TP
+.BR \-h ", " \-\-help
+Print a concise help message and exit.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.SH EXAMPLES
+Render the default tiling and open it:
+.PP
+.EX
+aper > tiling.pdf
+open tiling.pdf
+.EE
+.SH EXIT STATUS
+.B aper
+exits zero after writing a complete PDF document and non-zero if its arguments
+are invalid or output fails.
