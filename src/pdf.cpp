@@ -96,8 +96,12 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     document += "endobj\n";
 }
 
-[[nodiscard]] bool primary_fill(Shape shape) {
-    return shape == Shape::kite || shape == Shape::thick_rhomb;
+[[nodiscard]] Colour blend(Colour first, Colour second, double amount) {
+    return {
+        first.red + amount * (second.red - first.red),
+        first.green + amount * (second.green - first.green),
+        first.blue + amount * (second.blue - first.blue),
+    };
 }
 
 [[nodiscard]] std::string content_stream(std::span<const Tile> tiles,
@@ -137,10 +141,18 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
     set_colour(content, ink, "RG");
     content << stroke_width << " w\n1 J\n1 j\n";
 
-    for (const auto use_primary : {true, false}) {
-        set_colour(content, use_primary ? colours.primary : colours.secondary, "rg");
+    for (std::uint8_t fill = 0; fill <= maximum_fill; ++fill) {
+        const auto used = std::any_of(tiles.begin(), tiles.end(), [fill](const Tile& tile) {
+            return tile.fill == fill;
+        });
+        if (!used) {
+            continue;
+        }
+        const auto amount =
+            static_cast<double>(fill) / static_cast<double>(maximum_fill);
+        set_colour(content, blend(colours.primary, colours.secondary, amount), "rg");
         for (const auto& tile : tiles) {
-            if (primary_fill(tile.shape) != use_primary) {
+            if (tile.fill != fill) {
                 continue;
             }
             content << page_x(tile.vertices[0]) << ' ' << page_y(tile.vertices[0])
@@ -177,10 +189,13 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
                                 " >>\nstream\n" + content + "endstream";
     append_object(document, offsets, 4, stream_object);
 
-    const auto family = tiling == Tiling::p2 ? "P2" : "P3";
+    const auto family = tiling_name(tiling);
+    const auto penrose =
+        tiling == Tiling::p1 || tiling == Tiling::p2 || tiling == Tiling::p3;
     const auto subject =
-        "<< /Title (" + std::string(family) + " Penrose tiling - " +
-        std::string(seed_name(seed)) + ") /Creator (aper 0.4.0) /Subject (" +
+        "<< /Title (" + std::string(family) +
+        (penrose ? " Penrose tiling - " : " tiling - ") +
+        std::string(seed_name(seed)) + ") /Creator (aper 0.6.0) /Subject (" +
         std::string(seed_name(seed)) + " seed at depth " + std::to_string(depth) +
         "; " + std::string(colours.name) + " colour scheme) >>";
     append_object(document, offsets, 5, subject);
@@ -206,6 +221,28 @@ void write_pdf(std::ostream& output, std::span<const Tile> tiles, Tiling tiling,
                Seed seed, ColourScheme colour_scheme, unsigned depth) {
     if (tiles.empty()) {
         throw std::invalid_argument("cannot render an empty tiling");
+    }
+    for (const auto& tile : tiles) {
+        if (tile.fill > maximum_fill) {
+            throw std::invalid_argument("cannot render an unknown fill value");
+        }
+        if (tile.vertices.size() < 3) {
+            throw std::invalid_argument(
+                "cannot render a tile with fewer than three vertices");
+        }
+
+        double twice_area = 0.0;
+        for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+            const auto vertex = tile.vertices[i];
+            if (!std::isfinite(vertex.real()) || !std::isfinite(vertex.imag())) {
+                throw std::invalid_argument("cannot render a non-finite tile");
+            }
+            const auto next = tile.vertices[(i + 1) % tile.vertices.size()];
+            twice_area += vertex.real() * next.imag() - vertex.imag() * next.real();
+        }
+        if (!std::isfinite(twice_area) || twice_area == 0.0) {
+            throw std::invalid_argument("cannot render a degenerate tile");
+        }
     }
 
     const auto document = make_pdf(tiles, tiling, seed, colour_scheme, depth);

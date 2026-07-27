@@ -1,4 +1,5 @@
 #include "penrose.hpp"
+#include "substitution.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -15,7 +16,7 @@ namespace aper {
 namespace {
 
 constexpr double phi = std::numbers::phi;
-// All geometry stays inside the unit seed, including at the maximum depth.
+// Rendered geometry stays on the scale of its bounded seed, even at maximum depth.
 constexpr double quantisation = 1.0e10;
 constexpr double geometry_tolerance = 1.0e-8;
 
@@ -65,6 +66,14 @@ struct Placement {
     int start;
 };
 
+struct P1Prototile {
+    Shape shape;
+    Point origin;
+    // Orientations are exact multiples of pi/5. Keeping them integral avoids
+    // accumulating angular drift over repeated inflation.
+    int orientation;
+};
+
 class Components {
   public:
     explicit Components(std::size_t count) : parents_(count), sizes_(count, 1) {
@@ -101,6 +110,190 @@ class Components {
 
 [[nodiscard]] Point unit(int step) {
     return std::polar(1.0, static_cast<double>(step) * std::numbers::pi / 5.0);
+}
+
+[[nodiscard]] int normalise_orientation(int orientation) {
+    orientation %= 10;
+    return orientation < 0 ? orientation + 10 : orientation;
+}
+
+[[nodiscard]] Point p1_ray(int orientation, int tenth_turns, double length) {
+    const auto angle = static_cast<double>(2 * orientation + tenth_turns) *
+                       std::numbers::pi / 10.0;
+    return std::polar(length, angle);
+}
+
+[[nodiscard]] std::vector<Point> p1_vertices(const P1Prototile& tile,
+                                             double scale = 1.0) {
+    const auto point = [&](int tenth_turns, double length) {
+        return scale *
+               (tile.origin + p1_ray(tile.orientation, tenth_turns, length));
+    };
+    const auto origin = scale * tile.origin;
+
+    switch (tile.shape) {
+    case Shape::pentagon_5:
+    case Shape::pentagon_3:
+    case Shape::pentagon_2:
+        return {origin, point(3, 1.0), point(1, phi), point(-1, phi),
+                point(-3, 1.0)};
+    case Shape::diamond:
+        return {origin,
+                point(1, 1.0),
+                point(0, 2.0 * std::cos(std::numbers::pi / 10.0)),
+                point(-1, 1.0)};
+    case Shape::boat:
+        return {origin,         point(1, 1.0),   point(3, phi),
+                point(1, phi), point(-1, phi), point(-3, phi),
+                point(-1, 1.0)};
+    case Shape::star:
+        return {origin,
+                point(1, 1.0),
+                point(3, phi),
+                point(1, phi),
+                point(1, phi * phi),
+                point(0, 2.0 * std::cos(std::numbers::pi / 10.0)),
+                point(-1, phi * phi),
+                point(-1, phi),
+                point(-3, phi),
+                point(-1, 1.0)};
+    case Shape::kite:
+    case Shape::dart:
+    case Shape::thin_rhomb:
+    case Shape::thick_rhomb:
+    case Shape::square:
+    case Shape::ammann_rhomb:
+    case Shape::pinwheel_triangle:
+    case Shape::equilateral_triangle:
+    case Shape::stampfli_rhomb:
+        break;
+    }
+    throw std::invalid_argument("shape is not a P1 prototile");
+}
+
+[[nodiscard]] P1Prototile p1_tile(Shape shape, Point origin, int orientation) {
+    return {shape, origin, normalise_orientation(orientation)};
+}
+
+[[nodiscard]] Point p1_vertex(const P1Prototile& tile, std::size_t vertex,
+                              double scale = 1.0) {
+    return p1_vertices(tile, scale).at(vertex);
+}
+
+[[nodiscard]] Point opposite_side(const P1Prototile& pentagon) {
+    const auto span = std::sqrt(5.0 + 2.0 * std::sqrt(5.0));
+    return pentagon.origin + p1_ray(pentagon.orientation, 0, span);
+}
+
+[[nodiscard]] std::vector<P1Prototile> subdivide_p1(const P1Prototile& tile) {
+    const auto inflated = p1_vertices(tile, phi * phi);
+    std::vector<P1Prototile> children;
+
+    if (tile.shape == Shape::star || tile.shape == Shape::boat) {
+        P1Prototile inner_star;
+        int first = 1;
+        int last = 5;
+        if (tile.shape == Shape::star) {
+            inner_star = p1_tile(Shape::star, inflated[5], tile.orientation + 5);
+            children.reserve(11);
+        } else {
+            const auto midpoint = (inflated[3] + inflated[4]) / 2.0;
+            const auto origin =
+                midpoint + p1_ray(tile.orientation, 0,
+                                  std::cos(std::numbers::pi / 10.0));
+            inner_star = p1_tile(Shape::star, origin, tile.orientation + 5);
+            children.reserve(7);
+            first = 2;
+            last = 4;
+        }
+
+        children.push_back(inner_star);
+        const auto star_vertices = p1_vertices(inner_star);
+        std::vector<P1Prototile> pentagons;
+        pentagons.reserve(static_cast<std::size_t>(last - first + 1));
+        for (int i = first; i <= last; ++i) {
+            pentagons.push_back(p1_tile(
+                Shape::pentagon_2, star_vertices[static_cast<std::size_t>(2 * i - 1)],
+                inner_star.orientation + 4 * (2 * i - 1)));
+        }
+        children.insert(children.end(), pentagons.begin(), pentagons.end());
+        for (const auto& pentagon : pentagons) {
+            children.push_back(p1_tile(Shape::boat, opposite_side(pentagon),
+                                       pentagon.orientation + 5));
+        }
+        return children;
+    }
+
+    if (tile.shape == Shape::diamond) {
+        children.reserve(3);
+        const auto inner_star =
+            p1_tile(Shape::star, inflated[0], tile.orientation);
+        const auto pentagon = p1_tile(Shape::pentagon_2, p1_vertex(inner_star, 5),
+                                     tile.orientation);
+        children.push_back(inner_star);
+        children.push_back(pentagon);
+        children.push_back(p1_tile(Shape::boat, opposite_side(pentagon),
+                                   tile.orientation + 5));
+        return children;
+    }
+
+    if (tile.shape != Shape::pentagon_5 && tile.shape != Shape::pentagon_3 &&
+        tile.shape != Shape::pentagon_2) {
+        throw std::invalid_argument("shape is not a P1 prototile");
+    }
+
+    std::array<P1Prototile, 5> outer;
+    for (std::size_t i = 0; i < outer.size(); ++i) {
+        outer[i] = p1_tile(Shape::pentagon_3, inflated[i],
+                           tile.orientation - 2 * static_cast<int>(i));
+    }
+    const auto inner = p1_tile(Shape::pentagon_5, p1_vertex(outer[2], 2),
+                               tile.orientation + 5);
+
+    if (tile.shape == Shape::pentagon_5) {
+        children.assign(outer.begin(), outer.end());
+        children.push_back(inner);
+        return children;
+    }
+
+    if (tile.shape == Shape::pentagon_3) {
+        children.reserve(7);
+        children.push_back(outer[0]);
+        children.push_back(outer[1]);
+        children.push_back(outer[4]);
+        children.push_back(p1_tile(Shape::pentagon_2, p1_vertex(outer[2], 4),
+                                   outer[2].orientation + 2));
+        children.push_back(p1_tile(Shape::pentagon_2, p1_vertex(outer[3], 1),
+                                   outer[3].orientation - 2));
+        children.push_back(inner);
+        const auto dummy =
+            p1_tile(Shape::diamond, inner.origin, inner.orientation + 5);
+        children.push_back(
+            p1_tile(Shape::diamond, p1_vertex(dummy, 2), inner.orientation));
+        return children;
+    }
+
+    children.reserve(8);
+    children.push_back(outer[0]);
+    children.push_back(p1_tile(Shape::pentagon_2, p1_vertex(outer[1], 4),
+                               tile.orientation));
+    children.push_back(p1_tile(Shape::pentagon_2, p1_vertex(outer[4], 1),
+                               tile.orientation));
+    children.push_back(p1_tile(Shape::pentagon_2, p1_vertex(outer[2], 1),
+                               tile.orientation + 4));
+    children.push_back(p1_tile(Shape::pentagon_2, p1_vertex(outer[3], 4),
+                               tile.orientation - 4));
+    children.push_back(inner);
+
+    const auto first_dummy = p1_tile(Shape::diamond, p1_vertex(outer[1], 2),
+                                     outer[1].orientation + 4);
+    const auto second_dummy = p1_tile(Shape::diamond, p1_vertex(outer[3], 2),
+                                      outer[1].orientation);
+    children.push_back(p1_tile(Shape::diamond, p1_vertex(first_dummy, 2),
+                               first_dummy.orientation + 5));
+    children.push_back(p1_tile(Shape::diamond, p1_vertex(second_dummy, 2),
+                               second_dummy.orientation + 5));
+    return children;
 }
 
 [[nodiscard]] Prototile kite() {
@@ -224,6 +417,16 @@ place(std::array<Placement, Size> placements) {
         }));
     case Seed::thin:
     case Seed::thick:
+    case Seed::pentagon_5:
+    case Seed::pentagon_3:
+    case Seed::pentagon_2:
+    case Seed::diamond:
+    case Seed::boat:
+    case Seed::triangle:
+    case Seed::square:
+    case Seed::rhomb:
+    case Seed::octagon:
+    case Seed::dodecagon:
         break;
     }
     throw std::invalid_argument("seed is not available for P2");
@@ -268,6 +471,38 @@ place(std::array<Placement, Size> placements) {
     throw std::invalid_argument("seed is not available for P3");
 }
 
+[[nodiscard]] P1Prototile p1_seed(Seed seed) {
+    switch (seed) {
+    case Seed::pentagon_5:
+        return p1_tile(Shape::pentagon_5, Point{}, 0);
+    case Seed::pentagon_3:
+        return p1_tile(Shape::pentagon_3, Point{}, 0);
+    case Seed::pentagon_2:
+        return p1_tile(Shape::pentagon_2, Point{}, 0);
+    case Seed::diamond:
+        return p1_tile(Shape::diamond, Point{}, 0);
+    case Seed::boat:
+        return p1_tile(Shape::boat, Point{}, 0);
+    case Seed::star:
+        return p1_tile(Shape::star, Point{}, 0);
+    case Seed::sun:
+    case Seed::ace:
+    case Seed::deuce:
+    case Seed::jack:
+    case Seed::queen:
+    case Seed::king:
+    case Seed::thin:
+    case Seed::thick:
+    case Seed::triangle:
+    case Seed::square:
+    case Seed::rhomb:
+    case Seed::octagon:
+    case Seed::dodecagon:
+        break;
+    }
+    throw std::invalid_argument("seed is not available for P1");
+}
+
 [[nodiscard]] QuantisedPoint quantise(Point point) {
     return {
         std::llround(point.real() * quantisation),
@@ -288,7 +523,7 @@ place(std::array<Placement, Size> placements) {
     return a.real() * b.imag() - a.imag() * b.real();
 }
 
-[[nodiscard]] double signed_area(const std::array<Point, 4>& vertices) {
+[[nodiscard]] double signed_area(std::span<const Point> vertices) {
     double twice_area = 0.0;
     for (std::size_t i = 0; i < vertices.size(); ++i) {
         twice_area += cross(vertices[i], vertices[(i + 1) % vertices.size()]);
@@ -296,7 +531,7 @@ place(std::array<Placement, Size> placements) {
     return twice_area / 2.0;
 }
 
-void canonicalise(std::array<Point, 4>& vertices) {
+void canonicalise(std::vector<Point>& vertices) {
     if (signed_area(vertices) < 0.0) {
         std::reverse(vertices.begin(), vertices.end());
     }
@@ -317,21 +552,55 @@ void canonicalise(std::array<Point, 4>& vertices) {
     return result / static_cast<double>(tile.vertices.size());
 }
 
+void sort_tiles(std::vector<Tile>& tiles) {
+    std::sort(tiles.begin(), tiles.end(), [](const Tile& lhs, const Tile& rhs) {
+        const auto lhs_centre = quantise(centre(lhs));
+        const auto rhs_centre = quantise(centre(rhs));
+        return std::tie(lhs_centre.y, lhs_centre.x, lhs.shape) <
+               std::tie(rhs_centre.y, rhs_centre.x, rhs.shape);
+    });
+}
+
 [[nodiscard]] Seam seam(const RobinsonTriangle& triangle, Tiling tiling) {
     if (tiling == Tiling::p2) {
         return {triangle.apex, triangle.base_b, triangle.base_a};
     }
-    return {triangle.base_a, triangle.base_b, triangle.apex};
+    if (tiling == Tiling::p3) {
+        return {triangle.base_a, triangle.base_b, triangle.apex};
+    }
+    throw std::invalid_argument("tiling does not use Robinson seams");
 }
 
 [[nodiscard]] Shape shape(TriangleKind kind, Tiling tiling) {
     if (tiling == Tiling::p2) {
         return kind == TriangleKind::acute ? Shape::kite : Shape::dart;
     }
-    return kind == TriangleKind::acute ? Shape::thin_rhomb : Shape::thick_rhomb;
+    if (tiling == Tiling::p3) {
+        return kind == TriangleKind::acute ? Shape::thin_rhomb
+                                           : Shape::thick_rhomb;
+    }
+    throw std::invalid_argument("tiling does not use Robinson-triangle pairs");
 }
 
 } // namespace
+
+std::string_view tiling_name(Tiling tiling) {
+    switch (tiling) {
+    case Tiling::p1:
+        return "P1";
+    case Tiling::p2:
+        return "P2";
+    case Tiling::p3:
+        return "P3";
+    case Tiling::ammann_beenker:
+        return "Ammann-Beenker";
+    case Tiling::pinwheel:
+        return "Pinwheel";
+    case Tiling::stampfli:
+        return "Stampfli 12-fold 1";
+    }
+    throw std::invalid_argument("unknown tiling");
+}
 
 std::string_view seed_name(Seed seed) {
     switch (seed) {
@@ -353,32 +622,74 @@ std::string_view seed_name(Seed seed) {
         return "thin";
     case Seed::thick:
         return "thick";
+    case Seed::pentagon_5:
+        return "pentagon-5";
+    case Seed::pentagon_3:
+        return "pentagon-3";
+    case Seed::pentagon_2:
+        return "pentagon-2";
+    case Seed::diamond:
+        return "diamond";
+    case Seed::boat:
+        return "boat";
+    case Seed::triangle:
+        return "triangle";
+    case Seed::square:
+        return "square";
+    case Seed::rhomb:
+        return "rhomb";
+    case Seed::octagon:
+        return "octagon";
+    case Seed::dodecagon:
+        return "dodecagon";
     }
     throw std::invalid_argument("unknown seed");
 }
 
 bool seed_supported(Tiling tiling, Seed seed) {
-    if (seed == Seed::sun || seed == Seed::star) {
-        return true;
+    switch (tiling) {
+    case Tiling::p1:
+        return seed == Seed::pentagon_5 || seed == Seed::pentagon_3 ||
+               seed == Seed::pentagon_2 || seed == Seed::diamond ||
+               seed == Seed::boat || seed == Seed::star;
+    case Tiling::p2:
+        return seed == Seed::sun || seed == Seed::star || seed == Seed::ace ||
+               seed == Seed::deuce || seed == Seed::jack || seed == Seed::queen ||
+               seed == Seed::king;
+    case Tiling::p3:
+        return seed == Seed::sun || seed == Seed::star || seed == Seed::thin ||
+               seed == Seed::thick;
+    case Tiling::ammann_beenker:
+        return seed == Seed::square || seed == Seed::rhomb ||
+               seed == Seed::octagon;
+    case Tiling::pinwheel:
+        return seed == Seed::triangle;
+    case Tiling::stampfli:
+        return seed == Seed::triangle || seed == Seed::square ||
+               seed == Seed::rhomb || seed == Seed::dodecagon;
     }
-    if (tiling == Tiling::p2) {
-        return seed == Seed::ace || seed == Seed::deuce || seed == Seed::jack ||
-               seed == Seed::queen || seed == Seed::king;
-    }
-    return seed == Seed::thin || seed == Seed::thick;
+    return false;
 }
 
 std::vector<RobinsonTriangle> make_seed(Tiling tiling, Seed seed) {
+    if (tiling != Tiling::p2 && tiling != Tiling::p3) {
+        throw std::invalid_argument(
+            "tiling does not use Robinson-triangle substitution");
+    }
     if (!seed_supported(tiling, seed)) {
         throw std::invalid_argument(std::string(seed_name(seed)) +
                                     " seed is not available for " +
-                                    (tiling == Tiling::p2 ? "P2" : "P3"));
+                                    std::string(tiling_name(tiling)));
     }
     return tiling == Tiling::p2 ? p2_seed(seed) : p3_seed(seed);
 }
 
 std::vector<RobinsonTriangle> subdivide(std::span<const RobinsonTriangle> triangles,
                                         Tiling tiling) {
+    if (tiling != Tiling::p2 && tiling != Tiling::p3) {
+        throw std::invalid_argument(
+            "tiling does not use Robinson-triangle substitution");
+    }
     std::size_t child_count = 0;
     for (const auto& triangle : triangles) {
         if (tiling == Tiling::p2) {
@@ -431,6 +742,10 @@ std::vector<RobinsonTriangle> subdivide(std::span<const RobinsonTriangle> triang
 }
 
 std::vector<RobinsonTriangle> generate(Tiling tiling, Seed seed, unsigned depth) {
+    if (tiling != Tiling::p2 && tiling != Tiling::p3) {
+        throw std::invalid_argument(
+            "tiling does not use Robinson-triangle substitution");
+    }
     if (depth > maximum_depth) {
         throw std::invalid_argument("subdivision depth exceeds the supported limit");
     }
@@ -444,6 +759,10 @@ std::vector<RobinsonTriangle> generate(Tiling tiling, Seed seed, unsigned depth)
 
 std::vector<Tile> pair_tiles(std::span<const RobinsonTriangle> triangles,
                              Tiling tiling) {
+    if (tiling != Tiling::p2 && tiling != Tiling::p3) {
+        throw std::invalid_argument(
+            "tiling does not use Robinson-triangle pairs");
+    }
     std::vector<IndexedTriangle> indexed;
     indexed.reserve(triangles.size());
     for (std::size_t i = 0; i < triangles.size(); ++i) {
@@ -498,9 +817,14 @@ std::vector<Tile> pair_tiles(std::span<const RobinsonTriangle> triangles,
 
             const auto negative = side_a < 0.0 ? first_seam.outer : second_seam.outer;
             const auto positive = side_a > 0.0 ? first_seam.outer : second_seam.outer;
+            const auto tile_shape = shape(first_triangle.kind, tiling);
             Tile tile{
-                shape(first_triangle.kind, tiling),
+                tile_shape,
                 {first_seam.first, negative, first_seam.second, positive},
+                static_cast<std::uint8_t>(
+                    tile_shape == Shape::kite || tile_shape == Shape::thick_rhomb
+                        ? 0
+                        : maximum_fill),
             };
             canonicalise(tile.vertices);
             tiles.push_back(tile);
@@ -509,12 +833,7 @@ std::vector<Tile> pair_tiles(std::span<const RobinsonTriangle> triangles,
         first = last;
     }
 
-    std::sort(tiles.begin(), tiles.end(), [](const Tile& lhs, const Tile& rhs) {
-        const auto lhs_centre = quantise(centre(lhs));
-        const auto rhs_centre = quantise(centre(rhs));
-        return std::tie(lhs_centre.y, lhs_centre.x, lhs.shape) <
-               std::tie(rhs_centre.y, rhs_centre.x, rhs.shape);
-    });
+    sort_tiles(tiles);
 
     return tiles;
 }
@@ -525,7 +844,9 @@ std::vector<Tile> largest_component(std::span<const Tile> tiles) {
     }
 
     std::vector<IndexedEdge> indexed;
-    indexed.reserve(4 * tiles.size());
+    indexed.reserve(std::accumulate(
+        tiles.begin(), tiles.end(), std::size_t{},
+        [](std::size_t count, const Tile& tile) { return count + tile.vertices.size(); }));
     for (std::size_t tile = 0; tile < tiles.size(); ++tile) {
         for (std::size_t vertex = 0; vertex < tiles[tile].vertices.size(); ++vertex) {
             indexed.push_back({
@@ -573,7 +894,89 @@ std::vector<Tile> largest_component(std::span<const Tile> tiles) {
     return result;
 }
 
+std::vector<Tile> generate_tiles(Tiling tiling, Seed seed, unsigned depth) {
+    if (!seed_supported(tiling, seed)) {
+        throw std::invalid_argument(std::string(seed_name(seed)) +
+                                    " seed is not available for " +
+                                    std::string(tiling_name(tiling)));
+    }
+    if (tiling == Tiling::p2 || tiling == Tiling::p3) {
+        const auto triangles = generate(tiling, seed, depth);
+        return largest_component(pair_tiles(triangles, tiling));
+    }
+    if (tiling != Tiling::p1) {
+        return detail::generate_straight_tiles(tiling, seed, depth);
+    }
+
+    if (depth > maximum_p1_depth) {
+        throw std::invalid_argument("P1 subdivision depth exceeds the supported limit");
+    }
+
+    std::vector<P1Prototile> prototiles{p1_seed(seed)};
+    for (unsigned generation = 0; generation < depth; ++generation) {
+        std::size_t child_count = 0;
+        for (const auto& tile : prototiles) {
+            switch (tile.shape) {
+            case Shape::star:
+                child_count += 11;
+                break;
+            case Shape::boat:
+            case Shape::pentagon_3:
+                child_count += 7;
+                break;
+            case Shape::diamond:
+                child_count += 3;
+                break;
+            case Shape::pentagon_5:
+                child_count += 6;
+                break;
+            case Shape::pentagon_2:
+                child_count += 8;
+                break;
+            case Shape::kite:
+            case Shape::dart:
+            case Shape::thin_rhomb:
+            case Shape::thick_rhomb:
+            case Shape::square:
+            case Shape::ammann_rhomb:
+            case Shape::pinwheel_triangle:
+            case Shape::equilateral_triangle:
+            case Shape::stampfli_rhomb:
+                throw std::runtime_error("non-P1 shape in P1 substitution");
+            }
+        }
+
+        std::vector<P1Prototile> children;
+        children.reserve(child_count);
+        for (const auto& tile : prototiles) {
+            auto child_tiles = subdivide_p1(tile);
+            children.insert(children.end(), child_tiles.begin(), child_tiles.end());
+        }
+        prototiles = std::move(children);
+    }
+
+    const auto scale = std::pow(phi, -2.0 * static_cast<double>(depth));
+    std::vector<Tile> tiles;
+    tiles.reserve(prototiles.size());
+    for (const auto& prototile : prototiles) {
+        auto vertices = p1_vertices(prototile, scale);
+        canonicalise(vertices);
+        const auto fill = prototile.shape == Shape::star ||
+                                  prototile.shape == Shape::boat ||
+                                  prototile.shape == Shape::diamond
+                              ? std::uint8_t{0}
+                              : maximum_fill;
+        tiles.push_back({prototile.shape, std::move(vertices), fill});
+    }
+    sort_tiles(tiles);
+    return tiles;
+}
+
 std::size_t predicted_triangle_count(Tiling tiling, Seed seed, unsigned depth) {
+    if (tiling != Tiling::p2 && tiling != Tiling::p3) {
+        throw std::invalid_argument(
+            "tiling does not use Robinson-triangle substitution");
+    }
     const auto triangles = make_seed(tiling, seed);
     std::size_t acute = static_cast<std::size_t>(
         std::count_if(triangles.begin(), triangles.end(), [](const auto& triangle) {

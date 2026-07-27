@@ -1,6 +1,7 @@
 # aper
 
-`aper` draws finite P2 and P3 Penrose tilings from a choice of starting designs.
+`aper` draws finite Penrose, Ammann–Beenker, Pinwheel, and Stampfli 12-fold 1
+tilings from a choice of starting designs.
 
 It is a small, dependency-free C++20 program for the shell. Deterministic,
 native vector PDF goes to standard output; diagnostics go to standard error.
@@ -14,29 +15,57 @@ open tiling.pdf
 ## Use
 
 ```text
-aper [-t p2|p3] [-s seed] [-c scheme] [-n depth]
+aper [-t type] [-s seed] [-c scheme] [-n depth]
 aper -h | --help
 aper -V | --version
 ```
 
-- `-t type` or `--tiling type` selects `p2` kite-and-dart or `p3` rhombs.
-  The default is `p3`.
-- `-s seed` or `--seed seed` selects the starting design. P2 provides `sun`,
-  `star`, `ace`, `deuce`, `jack`, `queen`, and `king`; P3 provides `sun`,
-  `star`, `thin`, and `thick`. The default is `sun`; the P3 `thin` seed needs
-  a depth of at least 2.
+- `-t type` or `--tiling type` selects `p1` pentagon-boat-star, `p2`
+  kite-and-dart, `p3` rhombs, `ammann-beenker`, `pinwheel`, or `stampfli`.
+  Short and descriptive aliases include `ab`, `pentagon-boat-star`,
+  `kite-dart`, `rhomb`, and `stampfli-12-fold-1`. The default is `p3`.
+- `-s seed` or `--seed seed` selects the starting design. P1 provides
+  `pentagon-5`, `pentagon-3`, `pentagon-2`, `diamond`, `boat`, and `star`;
+  P2 provides `sun`, `star`, `ace`, `deuce`, `jack`, `queen`, and `king`;
+  P3 provides `sun`, `star`, `thin`, and `thick`; Ammann–Beenker provides
+  `octagon`, `square`, and `rhomb`; Pinwheel provides `triangle`; and
+  Stampfli 12-fold 1 provides `dodecagon`, `triangle`, `square`, and `rhomb`.
+  Their defaults are `pentagon-5`, `sun`, `sun`, `octagon`, `triangle`, and
+  `dodecagon`, respectively. The P3 `thin` seed needs a depth of at least 2.
 - `-c scheme` or `--colour scheme` selects `flare`, `grove`, `electric`, or
   `tide`. The default is `flare`.
-- `-n depth` or `--depth depth` sets the number of Robinson subdivisions,
-  from 1 through 12.
-  The default is 7.
+- `-n depth` or `--depth depth` sets the number of substitutions. P1 accepts
+  1 through 6 and defaults to 4; P2 and P3 accept 1 through 12 and default to
+  7; Ammann–Beenker accepts 1 through 6 and defaults to 4; Pinwheel accepts
+  1 through 8 and defaults to 6; Stampfli 12-fold 1 accepts 1 through 3 and
+  defaults to 2.
 - `-h` or `--help` prints a concise help message.
 - `-V` or `--version` prints the version.
 
 ## Designs
 
-The seven P2 seeds are the classic vertex-centred Penrose patches. The two
-P3 prototile seeds complement its symmetric sun and star arrangements.
+The P1 family has six prototiles: three geometrically identical pentagons with
+different substitution roles, plus the diamond, boat, and star. The seven P2
+seeds are the classic vertex-centred Penrose patches. The two P3 prototile
+seeds complement its symmetric sun and star arrangements. The three added
+families use only convex triangles and quadrilaterals.
+
+### Eightfold, pinwheel, and twelvefold designs
+
+| Ammann–Beenker · Grove | Pinwheel · Tide |
+| :---: | :---: |
+| ![Ammann–Beenker octagon seed in grove colours](doc/aper-ammann-beenker-octagon-grove.png) | ![Pinwheel triangle seed in tide colours](doc/aper-pinwheel-triangle-tide.png) |
+| `./aper -t ammann-beenker -c grove -n 4 > ab.pdf` | `./aper -t pinwheel -c tide -n 6 > pinwheel.pdf` |
+| Stampfli 12-fold 1 · Flare | |
+| ![Stampfli 12-fold 1 dodecagon seed in flare colours](doc/aper-stampfli-dodecagon-flare.png) | |
+| `./aper -t stampfli -c flare -n 2 > stampfli.pdf` | |
+
+### P1 seeds
+
+| Pentagon-5 · Flare | Star · Electric |
+| :---: | :---: |
+| ![P1 pentagon-5 seed in flare colours](doc/aper-p1-pentagon-5-flare.png) | ![P1 star seed in electric colours](doc/aper-p1-star-electric.png) |
+| `./aper -t p1 -s pentagon-5 -c flare -n 4 > p1.pdf` | `./aper -t p1 -s star -c electric -n 3 > p1-star.pdf` |
 
 ### P2 vertex seeds
 
@@ -81,7 +110,19 @@ make check
 make install PREFIX=/usr/local
 ```
 
-The geometry and presentation are intentionally separate. The selected seed and
-family-specific Robinson substitution generate kites and darts or thin and thick
-rhombs; their matching rules are implicit in the construction. A compact PDF
+The geometry and presentation are intentionally separate. P1 uses the six-tile
+pentagonal inflation with a golden-ratio-squared linear factor; P2 and P3 use
+ordered Robinson subdivisions whose handedness carries their matching rules.
+The Penrose implementations follow the Tilings Encyclopedia entries for
+[pentagon-boat-star](https://tilings.math.uni-bielefeld.de/substitution/penrose-pentagon-boat-star/),
+[kite-and-dart](https://tilings.math.uni-bielefeld.de/substitution/penrose-kite-dart/),
+and [rhombs](https://tilings.math.uni-bielefeld.de/substitution/penrose-rhomb/).
+Ammann–Beenker keeps the Encyclopedia's hidden
+[triangle roles](https://tilings.math.uni-bielefeld.de/substitution/ammann-beenker-rhomb-triangle/)
+until complete squares can be paired; unmatched half-squares at a finite
+seed's boundary are omitted. Pinwheel uses the exact rational
+[five-triangle rule](https://tilings.math.uni-bielefeld.de/substitution/pinwheel/)
+and colours its growing set of orientations. Stampfli 12-fold 1 follows the
+[three-tile rule](https://tilings.math.uni-bielefeld.de/substitution/stampflis-12-fold-1/),
+deduplicating shared boundary tiles in finite symmetric seeds. A compact PDF
 writer applies the selected colour scheme.

@@ -1,9 +1,9 @@
-.TH APER 1 "July 26, 2026" "aper" "User Commands"
+.TH APER 1 "July 27, 2026" "aper" "User Commands"
 .SH NAME
-aper \- render Penrose tilings as PDF
+aper \- render substitution tilings as PDF
 .SH SYNOPSIS
 .B aper
-.RB [ \-t " p2|p3" ]
+.RB [ \-t " type" ]
 .RB [ \-s " seed" ]
 .RB [ \-c " scheme" ]
 .RB [ \-n " depth" ]
@@ -13,8 +13,8 @@ aper \- render Penrose tilings as PDF
 .BR aper " " { \-V | \-\-version }
 .SH DESCRIPTION
 .B aper
-generates a finite P2 kite-and-dart or P3 rhomb Penrose tiling from a selected
-starting design by Robinson subdivision and writes a complete native vector PDF
+generates a finite Penrose, Ammann-Beenker, Pinwheel, or Stampfli 12-fold 1
+tiling from a selected starting design and writes a complete native vector PDF
 to standard output.
 Diagnostics are written to standard error, so the PDF can be redirected or
 piped without contamination.
@@ -22,15 +22,41 @@ piped without contamination.
 .TP
 .BR \-t ", " \-\-tiling " " type
 Select
+.B p1
+for three pentagon types, a diamond, a boat, and a star,
 .B p2
-for kite-and-dart tiles or
+for kite-and-dart tiles,
 .B p3
-for thin and thick rhombs.
+for thin and thick Penrose rhombs,
+.B ammann-beenker
+for squares and 45-degree rhombs,
+.B pinwheel
+for right triangles, or
+.B stampfli
+for the three-tile 12-fold 1 rule.
+The descriptive aliases
+.BR pentagon-boat-star ,
+.BR kite-dart ,
+and
+.BR rhomb ,
+plus the short aliases
+.B ab
+and
+.BR stampfli-12-fold-1 ,
+are also accepted.
 The default is
 .BR p3 .
 .TP
 .BR \-s ", " \-\-seed " " seed
 Select the starting design.
+P1 provides
+.BR pentagon-5 ,
+.BR pentagon-3 ,
+.BR pentagon-2 ,
+.BR diamond ,
+.BR boat ,
+and
+.BR star .
 P2 provides
 .BR sun ,
 .BR star ,
@@ -46,8 +72,29 @@ P3 provides
 .BR thin ,
 and
 .BR thick .
-The default is
-.BR sun .
+Ammann-Beenker provides
+.BR octagon ,
+.BR square ,
+and
+.BR rhomb .
+Pinwheel provides
+.BR triangle .
+Stampfli 12-fold 1 provides
+.BR dodecagon ,
+.BR triangle ,
+.BR square ,
+and
+.BR rhomb .
+P1 defaults to
+.BR pentagon-5 ;
+P2 and P3 default to
+.BR sun ;
+Ammann-Beenker defaults to
+.BR octagon ;
+Pinwheel defaults to
+.BR triangle ;
+and Stampfli 12-fold 1 defaults to
+.BR dodecagon .
 The P3
 .B thin
 seed requires a depth of at least 2.
@@ -64,8 +111,12 @@ The default is
 .BR flare .
 .TP
 .BR \-n ", " \-\-depth " " depth
-Set the number of subdivisions to an integer from 1 through 12.
-The default is 7.
+Set the number of substitutions.
+P1 accepts an integer from 1 through 6 and defaults to 4.
+P2 and P3 accept an integer from 1 through 12 and default to 7.
+Ammann-Beenker accepts 1 through 6 and defaults to 4.
+Pinwheel accepts 1 through 8 and defaults to 6.
+Stampfli 12-fold 1 accepts 1 through 3 and defaults to 2.
 .TP
 .BR \-h ", " \-\-help
 Print a concise help message and exit.
@@ -80,10 +131,22 @@ aper > tiling.pdf
 open tiling.pdf
 .EE
 .PP
+Render a P1 pentagon-5 patch using the flare colour scheme:
+.PP
+.EX
+aper -t p1 -s pentagon-5 -c flare -n 4 > p1.pdf
+.EE
+.PP
 Render a P2 queen patch using the electric colour scheme:
 .PP
 .EX
 aper -t p2 -s queen -c electric -n 5 > queen.pdf
+.EE
+.PP
+Render a Stampfli 12-fold 1 patch:
+.PP
+.EX
+aper -t stampfli -c flare -n 2 > stampfli.pdf
 .EE
 .SH EXIT STATUS
 .B aper

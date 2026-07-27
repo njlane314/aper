@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
+#include <limits>
 #include <numbers>
 #include <sstream>
 #include <string>
@@ -71,6 +73,148 @@ struct SeedFixture {
     std::size_t initial_tiles;
     std::size_t next_tiles;
 };
+
+struct P1Fixture {
+    aper::Seed seed;
+    aper::Shape shape;
+    std::size_t children;
+    std::size_t shared_edges;
+    std::array<std::size_t, 6> kinds;
+};
+
+struct TileTopology {
+    std::size_t vertices;
+    std::size_t edges;
+    std::size_t boundary_edges;
+    std::size_t shared_edges;
+};
+
+[[nodiscard]] TileTopology topology(std::span<const aper::Tile> tiles) {
+    using QuantisedPoint = std::array<long long, 2>;
+    using Edge = std::array<QuantisedPoint, 2>;
+    const auto quantise = [](aper::Point point) {
+        return QuantisedPoint{std::llround(point.real() * 1.0e9),
+                              std::llround(point.imag() * 1.0e9)};
+    };
+
+    std::vector<QuantisedPoint> vertices;
+    std::vector<Edge> edges;
+    for (const auto& tile : tiles) {
+        for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+            auto first = quantise(tile.vertices[i]);
+            auto second = quantise(tile.vertices[(i + 1) % tile.vertices.size()]);
+            vertices.push_back(first);
+            if (second < first) {
+                std::swap(first, second);
+            }
+            edges.push_back({first, second});
+        }
+    }
+    std::sort(vertices.begin(), vertices.end());
+    std::sort(edges.begin(), edges.end());
+
+    const auto vertex_count = static_cast<std::size_t>(
+        std::distance(vertices.begin(), std::unique(vertices.begin(), vertices.end())));
+    std::size_t edge_count = 0;
+    std::size_t boundary = 0;
+    std::size_t shared = 0;
+    for (std::size_t first = 0; first < edges.size();) {
+        auto last = first + 1;
+        while (last < edges.size() && edges[last] == edges[first]) {
+            ++last;
+        }
+        CHECK(last - first <= 2);
+        ++edge_count;
+        boundary += static_cast<std::size_t>(last - first == 1);
+        shared += static_cast<std::size_t>(last - first == 2);
+        first = last;
+    }
+    return {vertex_count, edge_count, boundary, shared};
+}
+
+void test_p1_substitution() {
+    using enum aper::Shape;
+    constexpr std::array fixtures{
+        P1Fixture{aper::Seed::pentagon_5, pentagon_5, 6, 5, {0, 0, 0, 1, 5, 0}},
+        P1Fixture{aper::Seed::pentagon_3, pentagon_3, 7, 7, {0, 0, 1, 1, 3, 2}},
+        P1Fixture{aper::Seed::pentagon_2, pentagon_2, 8, 9, {0, 0, 2, 1, 1, 4}},
+        P1Fixture{aper::Seed::diamond, diamond, 3, 3, {1, 1, 0, 0, 0, 1}},
+        P1Fixture{aper::Seed::boat, boat, 7, 9, {1, 3, 0, 0, 0, 3}},
+        P1Fixture{aper::Seed::star, star, 11, 15, {1, 5, 0, 0, 0, 5}},
+    };
+
+    const auto kind_index = [](aper::Shape shape) {
+        switch (shape) {
+        case aper::Shape::star:
+            return std::size_t{0};
+        case aper::Shape::boat:
+            return std::size_t{1};
+        case aper::Shape::diamond:
+            return std::size_t{2};
+        case aper::Shape::pentagon_5:
+            return std::size_t{3};
+        case aper::Shape::pentagon_3:
+            return std::size_t{4};
+        case aper::Shape::pentagon_2:
+            return std::size_t{5};
+        case aper::Shape::kite:
+        case aper::Shape::dart:
+        case aper::Shape::thin_rhomb:
+        case aper::Shape::thick_rhomb:
+        case aper::Shape::square:
+        case aper::Shape::ammann_rhomb:
+        case aper::Shape::pinwheel_triangle:
+        case aper::Shape::equilateral_triangle:
+        case aper::Shape::stampfli_rhomb:
+            break;
+        }
+        return std::size_t{6};
+    };
+
+    for (const auto& fixture : fixtures) {
+        const auto seed = aper::generate_tiles(aper::Tiling::p1, fixture.seed, 0);
+        CHECK(seed.size() == 1);
+        CHECK(seed.front().shape == fixture.shape);
+
+        const auto children = aper::generate_tiles(aper::Tiling::p1, fixture.seed, 1);
+        CHECK(children.size() == fixture.children);
+        CHECK(aper::largest_component(children).size() == children.size());
+        const auto child_topology = topology(children);
+        CHECK(child_topology.shared_edges == fixture.shared_edges);
+        CHECK(child_topology.vertices + children.size() == child_topology.edges + 1);
+
+        std::array<std::size_t, 6> kinds{};
+        for (const auto& tile : children) {
+            const auto index = kind_index(tile.shape);
+            CHECK(index < kinds.size());
+            if (index < kinds.size()) {
+                ++kinds[index];
+            }
+        }
+        CHECK(kinds == fixture.kinds);
+
+        constexpr unsigned topology_depth = 3;
+        const auto deeper =
+            aper::generate_tiles(aper::Tiling::p1, fixture.seed, topology_depth);
+        CHECK(aper::largest_component(deeper).size() == deeper.size());
+        const auto deeper_topology = topology(deeper);
+        CHECK(deeper_topology.vertices + deeper.size() == deeper_topology.edges + 1);
+        auto expected_boundary = seed.front().vertices.size();
+        for (unsigned generation = 0; generation < topology_depth; ++generation) {
+            expected_boundary *= 4;
+        }
+        CHECK(deeper_topology.boundary_edges == expected_boundary);
+    }
+
+    constexpr std::array<std::size_t, 6> pentagon_counts{1, 6, 41, 271, 1806,
+                                                         12161};
+    for (unsigned depth = 0; depth < pentagon_counts.size(); ++depth) {
+        const auto tiles =
+            aper::generate_tiles(aper::Tiling::p1, aper::Seed::pentagon_5, depth);
+        CHECK(tiles.size() == pentagon_counts[depth]);
+        CHECK(aper::largest_component(tiles).size() == tiles.size());
+    }
+}
 
 void check_seed(const SeedFixture& fixture) {
     auto triangles = aper::make_seed(fixture.tiling, fixture.seed);
@@ -150,8 +294,23 @@ void test_seed_counts_and_area() {
 
     CHECK(!aper::seed_supported(aper::Tiling::p2, aper::Seed::thin));
     CHECK(!aper::seed_supported(aper::Tiling::p3, aper::Seed::ace));
+    CHECK(!aper::seed_supported(aper::Tiling::p1, aper::Seed::sun));
+    CHECK(aper::seed_supported(aper::Tiling::p1, aper::Seed::pentagon_5));
+    CHECK(aper::seed_supported(aper::Tiling::p1, aper::Seed::diamond));
+    CHECK(aper::seed_supported(aper::Tiling::p1, aper::Seed::boat));
+    CHECK(aper::seed_supported(aper::Tiling::p1, aper::Seed::star));
     CHECK(aper::seed_supported(aper::Tiling::p2, aper::Seed::queen));
     CHECK(aper::seed_supported(aper::Tiling::p3, aper::Seed::thick));
+    CHECK(aper::seed_supported(aper::Tiling::ammann_beenker,
+                               aper::Seed::octagon));
+    CHECK(aper::seed_supported(aper::Tiling::pinwheel, aper::Seed::triangle));
+    CHECK(aper::seed_supported(aper::Tiling::stampfli,
+                               aper::Seed::dodecagon));
+    CHECK(!aper::seed_supported(aper::Tiling::ammann_beenker,
+                                aper::Seed::triangle));
+    CHECK(!aper::seed_supported(aper::Tiling::pinwheel, aper::Seed::square));
+    CHECK(!aper::seed_supported(aper::Tiling::stampfli,
+                                aper::Seed::octagon));
 }
 
 [[nodiscard]] int interior_angle(const aper::Tile& tile, std::size_t vertex) {
@@ -296,6 +455,203 @@ void test_kite_and_dart_geometry() {
     CHECK(close(kite_area / dart_area, std::numbers::phi, 1.0e-8));
 }
 
+void test_p1_geometry() {
+    struct Fixture {
+        aper::Seed seed;
+        std::size_t vertices;
+        unsigned reflex_vertices;
+    };
+    constexpr std::array fixtures{
+        Fixture{aper::Seed::pentagon_5, 5, 0},
+        Fixture{aper::Seed::pentagon_3, 5, 0},
+        Fixture{aper::Seed::pentagon_2, 5, 0},
+        Fixture{aper::Seed::diamond, 4, 0},
+        Fixture{aper::Seed::boat, 7, 2},
+        Fixture{aper::Seed::star, 10, 5},
+    };
+
+    for (const auto& fixture : fixtures) {
+        const auto tiles = aper::generate_tiles(aper::Tiling::p1, fixture.seed, 0);
+        CHECK(tiles.size() == 1);
+        const auto& tile = tiles.front();
+        CHECK(tile.vertices.size() == fixture.vertices);
+        CHECK(signed_area(tile) > 0.0);
+
+        unsigned reflex_vertices = 0;
+        for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+            const auto side = std::abs(tile.vertices[(i + 1) % tile.vertices.size()] -
+                                       tile.vertices[i]);
+            CHECK(close(side, 1.0, 1.0e-9));
+            if (turn(tile.vertices[(i + tile.vertices.size() - 1) %
+                                   tile.vertices.size()],
+                     tile.vertices[i],
+                     tile.vertices[(i + 1) % tile.vertices.size()]) < 0.0) {
+                ++reflex_vertices;
+            }
+        }
+        CHECK(reflex_vertices == fixture.reflex_vertices);
+    }
+
+    const auto children =
+        aper::generate_tiles(aper::Tiling::p1, aper::Seed::pentagon_5, 1);
+    for (const auto& tile : children) {
+        for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+            CHECK(close(std::abs(tile.vertices[(i + 1) % tile.vertices.size()] -
+                                 tile.vertices[i]),
+                        1.0 / (std::numbers::phi * std::numbers::phi), 1.0e-9));
+        }
+    }
+}
+
+[[nodiscard]] std::size_t count_shape(std::span<const aper::Tile> tiles,
+                                      aper::Shape shape) {
+    return static_cast<std::size_t>(
+        std::count_if(tiles.begin(), tiles.end(), [shape](const auto& tile) {
+            return tile.shape == shape;
+        }));
+}
+
+void check_convex_tiles(std::span<const aper::Tile> tiles) {
+    for (const auto& tile : tiles) {
+        CHECK(tile.vertices.size() >= 3);
+        CHECK(signed_area(tile) > 0.0);
+        CHECK(tile.fill <= aper::maximum_fill);
+        for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+            const auto previous =
+                tile.vertices[(i + tile.vertices.size() - 1) % tile.vertices.size()];
+            const auto current = tile.vertices[i];
+            const auto next = tile.vertices[(i + 1) % tile.vertices.size()];
+            CHECK(turn(previous, current, next) > -1.0e-10);
+        }
+    }
+}
+
+void test_ammann_beenker() {
+    struct Counts {
+        std::size_t squares;
+        std::size_t rhombs;
+    };
+    constexpr std::array square_counts{
+        Counts{1, 0}, Counts{1, 4}, Counts{13, 24}, Counts{89, 140},
+    };
+    constexpr std::array rhomb_counts{
+        Counts{0, 1}, Counts{0, 3}, Counts{8, 17}, Counts{60, 99},
+    };
+
+    const auto check = [](aper::Seed seed, std::span<const Counts> expected) {
+        const auto inflation = 1.0 + std::sqrt(2.0);
+        for (unsigned depth = 0; depth < expected.size(); ++depth) {
+            const auto tiles =
+                aper::generate_tiles(aper::Tiling::ammann_beenker, seed, depth);
+            CHECK(count_shape(tiles, aper::Shape::square) ==
+                  expected[depth].squares);
+            CHECK(count_shape(tiles, aper::Shape::ammann_rhomb) ==
+                  expected[depth].rhombs);
+            CHECK(tiles.size() == expected[depth].squares + expected[depth].rhombs);
+            check_convex_tiles(tiles);
+
+            const auto expected_edge = std::pow(inflation, -static_cast<double>(depth));
+            for (const auto& tile : tiles) {
+                for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+                    CHECK(close(std::abs(tile.vertices[(i + 1) %
+                                                       tile.vertices.size()] -
+                                         tile.vertices[i]),
+                                expected_edge, 1.0e-8));
+                }
+            }
+        }
+    };
+    check(aper::Seed::square, square_counts);
+    check(aper::Seed::rhomb, rhomb_counts);
+
+    const auto octagon = aper::generate_tiles(aper::Tiling::ammann_beenker,
+                                               aper::Seed::octagon, 1);
+    CHECK(octagon.size() == 32);
+    CHECK(count_shape(octagon, aper::Shape::square) == 8);
+    CHECK(count_shape(octagon, aper::Shape::ammann_rhomb) == 24);
+    check_convex_tiles(octagon);
+}
+
+void test_pinwheel() {
+    std::size_t expected_count = 1;
+    for (unsigned depth = 0; depth <= 6; ++depth) {
+        const auto tiles =
+            aper::generate_tiles(aper::Tiling::pinwheel, aper::Seed::triangle, depth);
+        CHECK(tiles.size() == expected_count);
+        check_convex_tiles(tiles);
+
+        double total_area = 0.0;
+        std::array<bool, aper::maximum_fill + 1> fills{};
+        for (const auto& tile : tiles) {
+            CHECK(tile.shape == aper::Shape::pinwheel_triangle);
+            total_area += signed_area(tile);
+            fills[tile.fill] = true;
+
+            std::array<double, 3> sides{};
+            for (std::size_t i = 0; i < sides.size(); ++i) {
+                sides[i] = std::abs(tile.vertices[(i + 1) % sides.size()] -
+                                    tile.vertices[i]);
+            }
+            std::sort(sides.begin(), sides.end());
+            CHECK(close(sides[1] / sides[0], 2.0, 1.0e-8));
+            CHECK(close(sides[2] / sides[0], std::sqrt(5.0), 1.0e-8));
+        }
+        CHECK(close(total_area, 1.0, 1.0e-8));
+        if (depth == 6) {
+            CHECK(std::count(fills.begin(), fills.end(), true) >= 3);
+        }
+        expected_count *= 5;
+    }
+}
+
+void test_stampfli() {
+    struct Fixture {
+        aper::Seed seed;
+        std::size_t initial;
+        std::size_t triangles;
+        std::size_t rhombs;
+        std::size_t squares;
+    };
+    constexpr std::array fixtures{
+        Fixture{aper::Seed::triangle, 1, 10, 6, 0},
+        Fixture{aper::Seed::rhomb, 1, 12, 3, 2},
+        Fixture{aper::Seed::square, 1, 20, 12, 1},
+        Fixture{aper::Seed::dodecagon, 12, 120, 36, 24},
+    };
+
+    for (const auto& fixture : fixtures) {
+        const auto seed =
+            aper::generate_tiles(aper::Tiling::stampfli, fixture.seed, 0);
+        CHECK(seed.size() == fixture.initial);
+        check_convex_tiles(seed);
+
+        const auto children =
+            aper::generate_tiles(aper::Tiling::stampfli, fixture.seed, 1);
+        CHECK(count_shape(children, aper::Shape::equilateral_triangle) ==
+              fixture.triangles);
+        CHECK(count_shape(children, aper::Shape::stampfli_rhomb) ==
+              fixture.rhombs);
+        CHECK(count_shape(children, aper::Shape::square) == fixture.squares);
+        CHECK(children.size() ==
+              fixture.triangles + fixture.rhombs + fixture.squares);
+        check_convex_tiles(children);
+
+        for (const auto& tile : children) {
+            const auto first_edge = std::abs(tile.vertices[1] - tile.vertices[0]);
+            for (std::size_t i = 1; i < tile.vertices.size(); ++i) {
+                CHECK(close(std::abs(tile.vertices[(i + 1) % tile.vertices.size()] -
+                                     tile.vertices[i]),
+                            first_edge, 1.0e-8));
+            }
+        }
+    }
+
+    const auto deeper = aper::generate_tiles(aper::Tiling::stampfli,
+                                              aper::Seed::dodecagon, 2);
+    CHECK(deeper.size() == 2820);
+    check_convex_tiles(deeper);
+}
+
 struct ColourFixture {
     aper::ColourScheme scheme;
     std::string_view name;
@@ -305,32 +661,35 @@ struct ColourFixture {
 
 [[nodiscard]] std::string check_pdf(aper::Tiling tiling, aper::Seed seed,
                                     std::string_view title,
-                                    const ColourFixture& colours) {
-    const auto triangles = aper::generate(tiling, seed, 3);
-    const auto paired = aper::pair_tiles(triangles, tiling);
-    const auto tiles = aper::largest_component(paired);
+                                    const ColourFixture& colours,
+                                    unsigned depth = 3,
+                                    bool expect_secondary = true) {
+    const auto tiles = aper::generate_tiles(tiling, seed, depth);
 
     std::ostringstream first;
     std::ostringstream second;
-    aper::write_pdf(first, tiles, tiling, seed, colours.scheme, 3);
-    aper::write_pdf(second, tiles, tiling, seed, colours.scheme, 3);
+    aper::write_pdf(first, tiles, tiling, seed, colours.scheme, depth);
+    aper::write_pdf(second, tiles, tiling, seed, colours.scheme, depth);
 
     const auto pdf = first.str();
     CHECK(pdf == second.str());
     CHECK(pdf.starts_with("%PDF-1.4\n"));
     CHECK(pdf.ends_with("%%EOF\n"));
     CHECK(pdf.find(title) != std::string::npos);
-    CHECK(pdf.find("/Creator (aper 0.4.0)") != std::string::npos);
+    CHECK(pdf.find("/Creator (aper 0.6.0)") != std::string::npos);
     CHECK(pdf.find("/MediaBox [0 0 720 720]") != std::string::npos);
     CHECK(pdf.find("/Resources << >>") != std::string::npos);
     CHECK(pdf.find("/Subject (" + std::string(aper::seed_name(seed)) +
-                   " seed at depth 3; " + std::string(colours.name) +
+                   " seed at depth " + std::to_string(depth) + "; " +
+                   std::string(colours.name) +
                    " colour scheme)") != std::string::npos);
     CHECK(pdf.find("1.0000 1.0000 1.0000 rg\n0 0 720.0000 720.0000 re f") !=
           std::string::npos);
     CHECK(pdf.find("0.0627 0.0863 0.1059 RG") != std::string::npos);
     CHECK(pdf.find(colours.primary) != std::string::npos);
-    CHECK(pdf.find(colours.secondary) != std::string::npos);
+    if (expect_secondary) {
+        CHECK(pdf.find(colours.secondary) != std::string::npos);
+    }
     CHECK(pdf.find("nan") == std::string::npos);
     CHECK(pdf.find("inf") == std::string::npos);
     CHECK(occurrences(pdf, " m\n") == tiles.size());
@@ -379,6 +738,19 @@ void test_pdf() {
                       "0.0000 0.6549 0.7686"},
     };
 
+    constexpr std::array p1_seeds{
+        aper::Seed::pentagon_5, aper::Seed::pentagon_3,
+        aper::Seed::pentagon_2, aper::Seed::diamond,
+        aper::Seed::boat,       aper::Seed::star,
+    };
+    for (const auto seed : p1_seeds) {
+        const auto pdf = check_pdf(aper::Tiling::p1, seed,
+                                   "/Title (P1 Penrose tiling - " +
+                                       std::string(aper::seed_name(seed)) + ")",
+                                   schemes.front());
+        CHECK(!pdf.empty());
+    }
+
     std::string previous;
     for (const auto& colours : schemes) {
         const auto pdf = check_pdf(aper::Tiling::p2, aper::Seed::sun,
@@ -414,17 +786,67 @@ void test_pdf() {
                                    schemes.front());
         CHECK(!pdf.empty());
     }
+
+    CHECK(!check_pdf(aper::Tiling::ammann_beenker, aper::Seed::octagon,
+                     "/Title (Ammann-Beenker tiling - octagon)",
+                     schemes.front(), 2)
+               .empty());
+    const auto pinwheel =
+        check_pdf(aper::Tiling::pinwheel, aper::Seed::triangle,
+                  "/Title (Pinwheel tiling - triangle)", schemes.front(), 4,
+                  false);
+    CHECK(!pinwheel.empty());
+    CHECK(occurrences(pinwheel, " rg\n") >= 4);
+    CHECK(!check_pdf(aper::Tiling::stampfli, aper::Seed::dodecagon,
+                     "/Title (Stampfli 12-fold 1 tiling - dodecagon)",
+                     schemes.front(), 1)
+               .empty());
+}
+
+void test_invalid_pdf_geometry() {
+    const auto rejected = [](std::vector<aper::Tile> tiles) {
+        std::ostringstream output;
+        try {
+            aper::write_pdf(output, tiles, aper::Tiling::p1,
+                            aper::Seed::pentagon_5, aper::ColourScheme::flare, 1);
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+
+    CHECK(rejected({}));
+    CHECK(rejected({{aper::Shape::pentagon_5, {}}}));
+    CHECK(rejected({{aper::Shape::pentagon_5,
+                     {aper::Point{}, aper::Point{1.0, 0.0}}}}));
+    CHECK(rejected({{aper::Shape::pentagon_5,
+                     {aper::Point{}, aper::Point{1.0, 0.0},
+                      aper::Point{2.0, 0.0}}}}));
+    CHECK(rejected({{aper::Shape::pentagon_5,
+                     {aper::Point{},
+                      aper::Point{std::numeric_limits<double>::quiet_NaN(), 0.0},
+                      aper::Point{0.0, 1.0}}}}));
+    CHECK(rejected({{aper::Shape::pentagon_5,
+                     {aper::Point{}, aper::Point{1.0, 0.0},
+                      aper::Point{0.0, 1.0}},
+                     static_cast<std::uint8_t>(aper::maximum_fill + 1)}}));
 }
 
 } // namespace
 
 int main() {
     test_seed_counts_and_area();
+    test_p1_substitution();
     test_p2_vertex_seeds();
     test_largest_component();
+    test_p1_geometry();
     test_rhomb_geometry();
     test_kite_and_dart_geometry();
+    test_ammann_beenker();
+    test_pinwheel();
+    test_stampfli();
     test_pdf();
+    test_invalid_pdf_geometry();
 
     if (failures != 0) {
         std::cerr << failures << " test(s) failed\n";
