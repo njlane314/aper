@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -62,16 +63,32 @@ int failures = 0;
     return count;
 }
 
-template <std::size_t Size>
-void check_counts_and_area(aper::Tiling tiling,
-                           const std::array<std::size_t, Size>& triangle_counts,
-                           const std::array<std::size_t, Size>& tile_counts) {
-    auto triangles = aper::sun_seed();
-    const auto expected_area = 5.0 * std::sin(std::numbers::pi / 5.0);
+struct SeedFixture {
+    aper::Tiling tiling;
+    aper::Seed seed;
+    std::size_t acute;
+    std::size_t obtuse;
+    std::size_t initial_tiles;
+    std::size_t next_tiles;
+};
 
-    for (unsigned depth = 0; depth < triangle_counts.size(); ++depth) {
-        CHECK(triangles.size() == triangle_counts[depth]);
-        CHECK(aper::predicted_triangle_count(tiling, depth) == triangle_counts[depth]);
+void check_seed(const SeedFixture& fixture) {
+    auto triangles = aper::make_seed(fixture.tiling, fixture.seed);
+    const auto acute = static_cast<std::size_t>(
+        std::count_if(triangles.begin(), triangles.end(), [](const auto& triangle) {
+            return triangle.kind == aper::TriangleKind::acute;
+        }));
+    CHECK(acute == fixture.acute);
+    CHECK(triangles.size() - acute == fixture.obtuse);
+
+    double expected_area = 0.0;
+    for (const auto& triangle : triangles) {
+        expected_area += area(triangle);
+    }
+
+    for (unsigned depth = 0; depth <= 5; ++depth) {
+        CHECK(aper::predicted_triangle_count(fixture.tiling, fixture.seed, depth) ==
+              triangles.size());
 
         double total_area = 0.0;
         for (const auto& triangle : triangles) {
@@ -79,38 +96,146 @@ void check_counts_and_area(aper::Tiling tiling,
         }
         CHECK(close(total_area, expected_area, 1.0e-8));
 
-        const auto tiles = aper::pair_tiles(triangles, tiling);
-        CHECK(tiles.size() == tile_counts[depth]);
-
-        if (depth + 1 < triangle_counts.size()) {
-            triangles = aper::subdivide(triangles, tiling);
+        const auto tiles = aper::pair_tiles(triangles, fixture.tiling);
+        if (depth == 0) {
+            CHECK(tiles.size() == fixture.initial_tiles);
+        } else if (depth == 1) {
+            CHECK(tiles.size() == fixture.next_tiles);
+        } else {
+            CHECK(!tiles.empty());
         }
+
+        triangles = aper::subdivide(triangles, fixture.tiling);
     }
 }
 
-void test_counts_and_area() {
-    constexpr std::array<std::size_t, 8> p2_triangle_counts{
-        10, 30, 80, 210, 550, 1440, 3770, 9870,
-    };
-    constexpr std::array<std::size_t, 8> p2_tile_counts{
-        5, 15, 35, 95, 265, 705, 1855, 4885,
-    };
-    constexpr std::array<std::size_t, 8> p3_triangle_counts{
-        10, 20, 50, 130, 340, 890, 2330, 6100,
-    };
-    constexpr std::array<std::size_t, 8> p3_tile_counts{
-        0, 10, 20, 60, 160, 430, 1140, 3010,
+template <std::size_t Size>
+void check_sun_tile_counts(aper::Tiling tiling,
+                           const std::array<std::size_t, Size>& expected) {
+    auto triangles = aper::make_seed(tiling, aper::Seed::sun);
+    for (const auto count : expected) {
+        CHECK(aper::pair_tiles(triangles, tiling).size() == count);
+        triangles = aper::subdivide(triangles, tiling);
+    }
+}
+
+void test_seed_counts_and_area() {
+    constexpr std::array fixtures{
+        SeedFixture{aper::Tiling::p2, aper::Seed::sun, 10, 0, 5, 15},
+        SeedFixture{aper::Tiling::p2, aper::Seed::star, 0, 10, 5, 10},
+        SeedFixture{aper::Tiling::p2, aper::Seed::ace, 4, 2, 3, 6},
+        SeedFixture{aper::Tiling::p2, aper::Seed::deuce, 4, 4, 4, 7},
+        SeedFixture{aper::Tiling::p2, aper::Seed::jack, 6, 4, 5, 11},
+        SeedFixture{aper::Tiling::p2, aper::Seed::queen, 8, 2, 5, 12},
+        SeedFixture{aper::Tiling::p2, aper::Seed::king, 4, 6, 5, 11},
+        SeedFixture{aper::Tiling::p3, aper::Seed::sun, 10, 0, 0, 10},
+        SeedFixture{aper::Tiling::p3, aper::Seed::star, 0, 10, 5, 10},
+        SeedFixture{aper::Tiling::p3, aper::Seed::thin, 2, 0, 1, 0},
+        SeedFixture{aper::Tiling::p3, aper::Seed::thick, 0, 2, 1, 1},
     };
 
-    check_counts_and_area(aper::Tiling::p2, p2_triangle_counts, p2_tile_counts);
-    check_counts_and_area(aper::Tiling::p3, p3_triangle_counts, p3_tile_counts);
+    for (const auto& fixture : fixtures) {
+        check_seed(fixture);
+    }
 
-    CHECK(aper::predicted_triangle_count(aper::Tiling::p2, 12) == 1213930);
-    CHECK(aper::predicted_triangle_count(aper::Tiling::p3, 12) == 750250);
+    check_sun_tile_counts(aper::Tiling::p2, std::array<std::size_t, 8>{
+                                                5, 15, 35, 95, 265, 705, 1855, 4885});
+    check_sun_tile_counts(aper::Tiling::p3, std::array<std::size_t, 8>{
+                                                0, 10, 20, 60, 160, 430, 1140, 3010});
+
+    CHECK(aper::predicted_triangle_count(aper::Tiling::p2, aper::Seed::sun, 12) ==
+          1213930);
+    CHECK(aper::predicted_triangle_count(aper::Tiling::p3, aper::Seed::sun, 12) ==
+          750250);
+
+    CHECK(!aper::seed_supported(aper::Tiling::p2, aper::Seed::thin));
+    CHECK(!aper::seed_supported(aper::Tiling::p3, aper::Seed::ace));
+    CHECK(aper::seed_supported(aper::Tiling::p2, aper::Seed::queen));
+    CHECK(aper::seed_supported(aper::Tiling::p3, aper::Seed::thick));
+}
+
+[[nodiscard]] int interior_angle(const aper::Tile& tile, std::size_t vertex) {
+    const auto point = tile.vertices[vertex];
+    const auto incoming = point - tile.vertices[(vertex + 3) % tile.vertices.size()];
+    const auto outgoing = tile.vertices[(vertex + 1) % tile.vertices.size()] - point;
+    const auto turn_angle =
+        std::atan2(cross(incoming, outgoing), incoming.real() * outgoing.real() +
+                                                  incoming.imag() * outgoing.imag());
+    return static_cast<int>(
+        std::lround((std::numbers::pi - turn_angle) * 180.0 / std::numbers::pi));
+}
+
+[[nodiscard]] std::string centre_signature(aper::Seed seed) {
+    const auto triangles = aper::make_seed(aper::Tiling::p2, seed);
+    const auto tiles = aper::pair_tiles(triangles, aper::Tiling::p2);
+    std::vector<std::string> tokens;
+
+    for (const auto& tile : tiles) {
+        for (std::size_t i = 0; i < tile.vertices.size(); ++i) {
+            if (std::abs(tile.vertices[i]) > 1.0e-9) {
+                continue;
+            }
+            tokens.push_back(std::string(tile.shape == aper::Shape::kite ? "K" : "D") +
+                             std::to_string(interior_angle(tile, i)));
+        }
+    }
+
+    std::sort(tokens.begin(), tokens.end());
+    std::ostringstream signature;
+    for (const auto& token : tokens) {
+        if (signature.tellp() != 0) {
+            signature << ' ';
+        }
+        signature << token;
+    }
+    return signature.str();
+}
+
+void test_p2_vertex_seeds() {
+    CHECK(centre_signature(aper::Seed::sun) == "K72 K72 K72 K72 K72");
+    CHECK(centre_signature(aper::Seed::star) == "D72 D72 D72 D72 D72");
+    CHECK(centre_signature(aper::Seed::ace) == "D216 K72 K72");
+    CHECK(centre_signature(aper::Seed::deuce) == "D36 D36 K144 K144");
+    CHECK(centre_signature(aper::Seed::jack) == "D36 D36 K144 K72 K72");
+    CHECK(centre_signature(aper::Seed::queen) == "D72 K72 K72 K72 K72");
+    CHECK(centre_signature(aper::Seed::king) == "D72 D72 D72 K72 K72");
+}
+
+void test_largest_component() {
+    constexpr std::array p2_seeds{
+        aper::Seed::sun,  aper::Seed::star,  aper::Seed::ace,  aper::Seed::deuce,
+        aper::Seed::jack, aper::Seed::queen, aper::Seed::king,
+    };
+    bool removed_island = false;
+    for (const auto seed : p2_seeds) {
+        const auto triangles = aper::generate(aper::Tiling::p2, seed, 5);
+        const auto paired = aper::pair_tiles(triangles, aper::Tiling::p2);
+        const auto connected = aper::largest_component(paired);
+        CHECK(!connected.empty());
+        CHECK(connected.size() <= paired.size());
+        CHECK(aper::largest_component(connected).size() == connected.size());
+        removed_island = removed_island || connected.size() < paired.size();
+    }
+    CHECK(removed_island);
+
+    constexpr std::array p3_seeds{
+        aper::Seed::sun,
+        aper::Seed::star,
+        aper::Seed::thin,
+        aper::Seed::thick,
+    };
+    for (const auto seed : p3_seeds) {
+        const auto triangles = aper::generate(aper::Tiling::p3, seed, 5);
+        const auto paired = aper::pair_tiles(triangles, aper::Tiling::p3);
+        const auto connected = aper::largest_component(paired);
+        CHECK(!connected.empty());
+        CHECK(connected.size() <= paired.size());
+        CHECK(aper::largest_component(connected).size() == connected.size());
+    }
 }
 
 void test_rhomb_geometry() {
-    const auto triangles = aper::generate(aper::Tiling::p3, 7);
+    const auto triangles = aper::generate(aper::Tiling::p3, aper::Seed::sun, 7);
     const auto tiles = aper::pair_tiles(triangles, aper::Tiling::p3);
     CHECK(!tiles.empty());
 
@@ -128,7 +253,7 @@ void test_rhomb_geometry() {
 }
 
 void test_kite_and_dart_geometry() {
-    const auto triangles = aper::generate(aper::Tiling::p2, 5);
+    const auto triangles = aper::generate(aper::Tiling::p2, aper::Seed::sun, 5);
     const auto tiles = aper::pair_tiles(triangles, aper::Tiling::p2);
     CHECK(!tiles.empty());
 
@@ -178,25 +303,28 @@ struct ColourFixture {
     std::string_view secondary;
 };
 
-[[nodiscard]] std::string check_pdf(aper::Tiling tiling, std::string_view title,
+[[nodiscard]] std::string check_pdf(aper::Tiling tiling, aper::Seed seed,
+                                    std::string_view title,
                                     const ColourFixture& colours) {
-    const auto triangles = aper::generate(tiling, 3);
-    const auto tiles = aper::pair_tiles(triangles, tiling);
+    const auto triangles = aper::generate(tiling, seed, 3);
+    const auto paired = aper::pair_tiles(triangles, tiling);
+    const auto tiles = aper::largest_component(paired);
 
     std::ostringstream first;
     std::ostringstream second;
-    aper::write_pdf(first, tiles, tiling, colours.scheme, 3);
-    aper::write_pdf(second, tiles, tiling, colours.scheme, 3);
+    aper::write_pdf(first, tiles, tiling, seed, colours.scheme, 3);
+    aper::write_pdf(second, tiles, tiling, seed, colours.scheme, 3);
 
     const auto pdf = first.str();
     CHECK(pdf == second.str());
     CHECK(pdf.starts_with("%PDF-1.4\n"));
     CHECK(pdf.ends_with("%%EOF\n"));
     CHECK(pdf.find(title) != std::string::npos);
-    CHECK(pdf.find("/Creator (aper 0.3.0)") != std::string::npos);
+    CHECK(pdf.find("/Creator (aper 0.4.0)") != std::string::npos);
     CHECK(pdf.find("/MediaBox [0 0 720 720]") != std::string::npos);
     CHECK(pdf.find("/Resources << >>") != std::string::npos);
-    CHECK(pdf.find("/Subject (Sun seed at depth 3; " + std::string(colours.name) +
+    CHECK(pdf.find("/Subject (" + std::string(aper::seed_name(seed)) +
+                   " seed at depth 3; " + std::string(colours.name) +
                    " colour scheme)") != std::string::npos);
     CHECK(pdf.find("1.0000 1.0000 1.0000 rg\n0 0 720.0000 720.0000 re f") !=
           std::string::npos);
@@ -253,20 +381,47 @@ void test_pdf() {
 
     std::string previous;
     for (const auto& colours : schemes) {
-        const auto pdf =
-            check_pdf(aper::Tiling::p2, "/Title (P2 Penrose tiling)", colours);
+        const auto pdf = check_pdf(aper::Tiling::p2, aper::Seed::sun,
+                                   "/Title (P2 Penrose tiling - sun)", colours);
         if (!previous.empty()) {
             CHECK(pdf != previous);
         }
         previous = pdf;
     }
-    check_pdf(aper::Tiling::p3, "/Title (P3 Penrose tiling)", schemes.front());
+
+    constexpr std::array p2_seeds{
+        aper::Seed::star, aper::Seed::ace,   aper::Seed::deuce,
+        aper::Seed::jack, aper::Seed::queen, aper::Seed::king,
+    };
+    for (const auto seed : p2_seeds) {
+        const auto pdf = check_pdf(aper::Tiling::p2, seed,
+                                   "/Title (P2 Penrose tiling - " +
+                                       std::string(aper::seed_name(seed)) + ")",
+                                   schemes.front());
+        CHECK(!pdf.empty());
+    }
+
+    constexpr std::array p3_seeds{
+        aper::Seed::sun,
+        aper::Seed::star,
+        aper::Seed::thin,
+        aper::Seed::thick,
+    };
+    for (const auto seed : p3_seeds) {
+        const auto pdf = check_pdf(aper::Tiling::p3, seed,
+                                   "/Title (P3 Penrose tiling - " +
+                                       std::string(aper::seed_name(seed)) + ")",
+                                   schemes.front());
+        CHECK(!pdf.empty());
+    }
 }
 
 } // namespace
 
 int main() {
-    test_counts_and_area();
+    test_seed_counts_and_area();
+    test_p2_vertex_seeds();
+    test_largest_component();
     test_rhomb_geometry();
     test_kite_and_dart_geometry();
     test_pdf();

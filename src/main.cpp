@@ -11,25 +11,61 @@
 
 namespace {
 
-constexpr std::string_view version = "0.3.0";
+constexpr std::string_view version = "0.4.0";
 
 struct Options {
     aper::Tiling tiling = aper::Tiling::p3;
+    aper::Seed seed = aper::default_seed;
     aper::ColourScheme colour_scheme = aper::default_colour_scheme;
     unsigned depth = aper::default_depth;
 };
 
 void help(std::ostream& output) {
-    output << "usage: aper [-t p2|p3] [-c scheme] [-n depth]\n"
+    output << "usage: aper [-t p2|p3] [-s seed] [-c scheme] [-n depth]\n"
               "\n"
               "Draw a finite P2 or P3 Penrose tiling as PDF.\n"
               "\n"
               "  -t, --tiling TYPE  p2 kite-and-dart or p3 rhombs (default: p3)\n"
+              "  -s, --seed NAME    choose the starting design (default: sun)\n"
+              "                     p2: sun, star, ace, deuce, jack, queen, king\n"
+              "                     p3: sun, star, thin, thick (thin: depth 2+)\n"
               "  -c, --colour NAME  flare, grove, electric, or tide\n"
               "                     (default: flare)\n"
               "  -n, --depth N      subdivide N times (1-12; default: 7)\n"
               "  -h, --help         show this help\n"
               "  -V, --version      show the version\n";
+}
+
+[[nodiscard]] aper::Seed parse_seed(std::string_view text) {
+    if (text == "sun") {
+        return aper::Seed::sun;
+    }
+    if (text == "star") {
+        return aper::Seed::star;
+    }
+    if (text == "ace") {
+        return aper::Seed::ace;
+    }
+    if (text == "deuce") {
+        return aper::Seed::deuce;
+    }
+    if (text == "jack") {
+        return aper::Seed::jack;
+    }
+    if (text == "queen") {
+        return aper::Seed::queen;
+    }
+    if (text == "king") {
+        return aper::Seed::king;
+    }
+    if (text == "thin") {
+        return aper::Seed::thin;
+    }
+    if (text == "thick") {
+        return aper::Seed::thick;
+    }
+    throw std::invalid_argument(
+        "seed must be sun, star, ace, deuce, jack, queen, king, thin, or thick");
 }
 
 [[nodiscard]] aper::ColourScheme parse_colour_scheme(std::string_view text) {
@@ -83,6 +119,19 @@ void help(std::ostream& output) {
             std::cout << "aper " << version << '\n';
             std::exit(0);
         }
+        if (argument == "-s" || argument == "--seed") {
+            if (++i == argc) {
+                throw std::invalid_argument(argument == "-s"
+                                                ? "option -s requires a seed"
+                                                : "option --seed requires a seed");
+            }
+            options.seed = parse_seed(argv[i]);
+            continue;
+        }
+        if (argument.starts_with("--seed=")) {
+            options.seed = parse_seed(argument.substr(7));
+            continue;
+        }
         if (argument == "-c" || argument == "--colour") {
             if (++i == argc) {
                 throw std::invalid_argument(
@@ -133,6 +182,16 @@ void help(std::ostream& output) {
         }
         throw std::invalid_argument("aper takes no operands");
     }
+
+    if (!aper::seed_supported(options.tiling, options.seed)) {
+        throw std::invalid_argument(std::string(aper::seed_name(options.seed)) +
+                                    " seed is not available for " +
+                                    (options.tiling == aper::Tiling::p2 ? "P2" : "P3"));
+    }
+    if (options.tiling == aper::Tiling::p3 && options.seed == aper::Seed::thin &&
+        options.depth == 1) {
+        throw std::invalid_argument("thin seed requires a depth from 2 to 12");
+    }
     return options;
 }
 
@@ -141,10 +200,12 @@ void help(std::ostream& output) {
 int main(int argc, char** argv) {
     try {
         const auto options = parse_options(argc, argv);
-        const auto triangles = aper::generate(options.tiling, options.depth);
-        const auto tiles = aper::pair_tiles(triangles, options.tiling);
-        aper::write_pdf(std::cout, tiles, options.tiling, options.colour_scheme,
-                        options.depth);
+        const auto triangles =
+            aper::generate(options.tiling, options.seed, options.depth);
+        const auto paired = aper::pair_tiles(triangles, options.tiling);
+        const auto tiles = aper::largest_component(paired);
+        aper::write_pdf(std::cout, tiles, options.tiling, options.seed,
+                        options.colour_scheme, options.depth);
         if (!std::cout) {
             throw std::runtime_error("could not write PDF to standard output");
         }

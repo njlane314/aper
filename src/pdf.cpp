@@ -158,7 +158,8 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
 }
 
 [[nodiscard]] std::string make_pdf(std::span<const Tile> tiles, Tiling tiling,
-                                   ColourScheme colour_scheme, unsigned depth) {
+                                   Seed seed, ColourScheme colour_scheme,
+                                   unsigned depth) {
     const auto colours = scheme(colour_scheme);
     const auto content = content_stream(tiles, colours);
     std::vector<std::size_t> offsets(6);
@@ -178,9 +179,10 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
 
     const auto family = tiling == Tiling::p2 ? "P2" : "P3";
     const auto subject =
-        "<< /Title (" + std::string(family) +
-        " Penrose tiling) /Creator (aper 0.3.0) /Subject (Sun seed at depth " +
-        std::to_string(depth) + "; " + std::string(colours.name) + " colour scheme) >>";
+        "<< /Title (" + std::string(family) + " Penrose tiling - " +
+        std::string(seed_name(seed)) + ") /Creator (aper 0.4.0) /Subject (" +
+        std::string(seed_name(seed)) + " seed at depth " + std::to_string(depth) +
+        "; " + std::string(colours.name) + " colour scheme) >>";
     append_object(document, offsets, 5, subject);
 
     const auto xref_offset = document.size();
@@ -201,12 +203,12 @@ void append_object(std::string& document, std::vector<std::size_t>& offsets,
 } // namespace
 
 void write_pdf(std::ostream& output, std::span<const Tile> tiles, Tiling tiling,
-               ColourScheme colour_scheme, unsigned depth) {
+               Seed seed, ColourScheme colour_scheme, unsigned depth) {
     if (tiles.empty()) {
         throw std::invalid_argument("cannot render an empty tiling");
     }
 
-    const auto document = make_pdf(tiles, tiling, colour_scheme, depth);
+    const auto document = make_pdf(tiles, tiling, seed, colour_scheme, depth);
     output.write(document.data(), static_cast<std::streamsize>(document.size()));
 }
 

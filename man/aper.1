@@ -4,6 +4,7 @@ aper \- render Penrose tilings as PDF
 .SH SYNOPSIS
 .B aper
 .RB [ \-t " p2|p3" ]
+.RB [ \-s " seed" ]
 .RB [ \-c " scheme" ]
 .RB [ \-n " depth" ]
 .br
@@ -12,9 +13,9 @@ aper \- render Penrose tilings as PDF
 .BR aper " " { \-V | \-\-version }
 .SH DESCRIPTION
 .B aper
-generates a finite P2 kite-and-dart or P3 rhomb Penrose tiling from a fixed
-ten-triangle sun seed by Robinson subdivision and writes a complete native
-vector PDF to standard output.
+generates a finite P2 kite-and-dart or P3 rhomb Penrose tiling from a selected
+starting design by Robinson subdivision and writes a complete native vector PDF
+to standard output.
 Diagnostics are written to standard error, so the PDF can be redirected or
 piped without contamination.
 .SH OPTIONS
@@ -27,6 +28,29 @@ for kite-and-dart tiles or
 for thin and thick rhombs.
 The default is
 .BR p3 .
+.TP
+.BR \-s ", " \-\-seed " " seed
+Select the starting design.
+P2 provides
+.BR sun ,
+.BR star ,
+.BR ace ,
+.BR deuce ,
+.BR jack ,
+.BR queen ,
+and
+.BR king .
+P3 provides
+.BR sun ,
+.BR star ,
+.BR thin ,
+and
+.BR thick .
+The default is
+.BR sun .
+The P3
+.B thin
+seed requires a depth of at least 2.
 .TP
 .BR \-c ", " \-\-colour " " scheme
 Select one of the
@@ -56,10 +80,10 @@ aper > tiling.pdf
 open tiling.pdf
 .EE
 .PP
-Render a P2 kite-and-dart tiling using the electric colour scheme:
+Render a P2 queen patch using the electric colour scheme:
 .PP
 .EX
-aper -t p2 -c electric -n 5 > p2.pdf
+aper -t p2 -s queen -c electric -n 5 > queen.pdf
 .EE
 .SH EXIT STATUS
 .B aper

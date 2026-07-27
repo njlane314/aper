@@ -4,6 +4,7 @@
 #include <complex>
 #include <cstddef>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace aper {
@@ -18,6 +19,20 @@ enum class Tiling {
     p2,
     p3,
 };
+
+enum class Seed {
+    sun,
+    star,
+    ace,
+    deuce,
+    jack,
+    queen,
+    king,
+    thin,
+    thick,
+};
+
+inline constexpr Seed default_seed = Seed::sun;
 
 enum class TriangleKind {
     acute,
@@ -44,12 +59,17 @@ struct Tile {
     std::array<Point, 4> vertices;
 };
 
-[[nodiscard]] std::vector<RobinsonTriangle> sun_seed();
+[[nodiscard]] std::string_view seed_name(Seed seed);
+[[nodiscard]] bool seed_supported(Tiling tiling, Seed seed);
+[[nodiscard]] std::vector<RobinsonTriangle> make_seed(Tiling tiling, Seed seed);
 [[nodiscard]] std::vector<RobinsonTriangle>
 subdivide(std::span<const RobinsonTriangle> triangles, Tiling tiling);
-[[nodiscard]] std::vector<RobinsonTriangle> generate(Tiling tiling, unsigned depth);
+[[nodiscard]] std::vector<RobinsonTriangle> generate(Tiling tiling, Seed seed,
+                                                     unsigned depth);
 [[nodiscard]] std::vector<Tile> pair_tiles(std::span<const RobinsonTriangle> triangles,
                                            Tiling tiling);
-[[nodiscard]] std::size_t predicted_triangle_count(Tiling tiling, unsigned depth);
+[[nodiscard]] std::vector<Tile> largest_component(std::span<const Tile> tiles);
+[[nodiscard]] std::size_t predicted_triangle_count(Tiling tiling, Seed seed,
+                                                   unsigned depth);
 
 } // namespace aper

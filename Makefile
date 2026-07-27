@@ -45,9 +45,16 @@ $(BUILD):
 check: $(PROGRAM) $(BUILD)/aper-test
 	./$(BUILD)/aper-test
 	@./$(PROGRAM) -h | grep -q '^usage: aper'
-	@./$(PROGRAM) -V | grep -q '^aper 0\.3\.0$$'
+	@./$(PROGRAM) -V | grep -q '^aper 0\.4\.0$$'
 	@./$(PROGRAM) -t p2 -n 1 | grep -a -q '%%EOF'
 	@./$(PROGRAM) -t p3 -n 1 | grep -a -q '%%EOF'
+	@for seed in sun star ace deuce jack queen king; do \
+		./$(PROGRAM) -t p2 -s $$seed -n 2 | grep -a -q '%%EOF' || exit 1; \
+	done
+	@for seed in sun star thin thick; do \
+		./$(PROGRAM) -t p3 -s $$seed -n 2 | grep -a -q '%%EOF' || exit 1; \
+	done
+	@./$(PROGRAM) --tiling=p2 --seed=queen -n 2 | grep -a -q '%%EOF'
 	@for scheme in flare grove electric tide; do \
 		./$(PROGRAM) -c $$scheme -n 1 | grep -a -q '%%EOF' || exit 1; \
 	done
@@ -60,6 +67,21 @@ check: $(PROGRAM) $(BUILD)/aper-test
 	fi
 	@if ./$(PROGRAM) -c sepia >/dev/null 2>&1; then \
 		echo 'aper accepted an invalid colour scheme' >&2; exit 1; \
+	fi
+	@if ./$(PROGRAM) -s wheel >/dev/null 2>&1; then \
+		echo 'aper accepted an invalid seed' >&2; exit 1; \
+	fi
+	@if ./$(PROGRAM) -t p3 -s ace >/dev/null 2>&1; then \
+		echo 'aper accepted a P2 seed for P3' >&2; exit 1; \
+	fi
+	@if ./$(PROGRAM) -t p2 -s thin >/dev/null 2>&1; then \
+		echo 'aper accepted a P3 seed for P2' >&2; exit 1; \
+	fi
+	@if ./$(PROGRAM) -t p3 -s thin -n 1 >/dev/null 2>&1; then \
+		echo 'aper accepted an unrenderable thin seed depth' >&2; exit 1; \
+	fi
+	@if ./$(PROGRAM) --seed >/dev/null 2>&1; then \
+		echo 'aper accepted a missing seed' >&2; exit 1; \
 	fi
 	@if ./$(PROGRAM) --colour >/dev/null 2>&1; then \
 		echo 'aper accepted a missing colour scheme' >&2; exit 1; \

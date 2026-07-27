@@ -17,6 +17,6 @@ enum class ColourScheme {
 inline constexpr ColourScheme default_colour_scheme = ColourScheme::flare;
 
 void write_pdf(std::ostream& output, std::span<const Tile> tiles, Tiling tiling,
-               ColourScheme colour_scheme, unsigned depth);
+               Seed seed, ColourScheme colour_scheme, unsigned depth);
 
 } // namespace aper
