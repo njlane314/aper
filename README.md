@@ -52,6 +52,38 @@ For example, render the Pinwheel substitution rule:
 ./aper -t pinwheel --rule -c tide > pinwheel-rule.pdf
 ```
 
+## Mathematical idea
+
+A tiling covers the plane without gaps or overlapping interiors. A
+[substitution tiling](https://tilings.math.uni-bielefeld.de/glossary/substitution/)
+begins with finitely many *prototile types*—types, not necessarily different
+shapes. A rule expands each type $T_i$ by a linear factor $\lambda>1$, dissects
+the result into transformed prototiles, and may then be iterated. Its finite
+stages are *supertiles*: nested patches in which the same organisation
+reappears at larger scales.
+
+Let $M_{ij}$ count type-$j$ tiles in the substituted type-$i$ tile, and let
+$a$ be the vector of prototile areas. In the plane, a consistent self-similar
+rule obeys
+
+$$
+M a = \lambda^2 a.
+$$
+
+The Perron–Frobenius data of $M$ therefore connects geometry with combinatorial
+growth and, for primitive substitutions, tile frequencies.
+
+A full tiling $T$ is nonperiodic when $T+x=T$ implies $x=0$. A system is
+aperiodic only when every full-plane tiling it admits is nonperiodic;
+substitution alone does not guarantee this. Such tilings are interesting
+because a finite recursive description can produce deterministic long-range
+order, recurring motifs at unbounded scales, and noncrystallographic rotational
+order forbidden to a periodic lattice. They connect geometry and algebra with
+dynamical systems, diffraction, and models of quasicrystals.
+
+`aper` renders finite substitution patches and their rules. A large patch may
+suggest aperiodicity, but it cannot prove it.
+
 ## Designs
 
 The P1 family has six prototiles: three geometrically identical pentagons with
