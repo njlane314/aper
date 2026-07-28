@@ -805,6 +805,408 @@ class ExactCover {
     std::vector<std::vector<std::size_t>> rows_by_column_;
 };
 
+struct LatticeCell {
+    int x = 0;
+    int y = 0;
+
+    auto operator<=>(const LatticeCell&) const = default;
+};
+
+using LatticeCells = std::vector<LatticeCell>;
+
+struct LatticeSymmetry {
+    unsigned quarter_turns = 0;
+    bool reflected = false;
+};
+
+struct OrientedLatticeCells {
+    LatticeCells cells;
+    LatticeSymmetry symmetry;
+    LatticeCell offset;
+};
+
+struct LatticePlacement {
+    LatticeCells occupied;
+    LatticeSymmetry symmetry;
+    LatticeCell translation;
+};
+
+constexpr std::array lattice_symmetries{
+    LatticeSymmetry{0, false}, LatticeSymmetry{1, false}, LatticeSymmetry{2, false},
+    LatticeSymmetry{3, false}, LatticeSymmetry{0, true},  LatticeSymmetry{1, true},
+    LatticeSymmetry{2, true},  LatticeSymmetry{3, true},
+};
+
+constexpr std::array lattice_neighbours{
+    LatticeCell{1, 0},
+    LatticeCell{-1, 0},
+    LatticeCell{0, 1},
+    LatticeCell{0, -1},
+};
+
+LatticeCell transformed_vertex(LatticeCell vertex, const LatticeSymmetry& symmetry) {
+    if (symmetry.reflected) {
+        vertex.y = -vertex.y;
+    }
+    for (unsigned turn = 0; turn < symmetry.quarter_turns; ++turn) {
+        vertex = {-vertex.y, vertex.x};
+    }
+    return vertex;
+}
+
+OrientedLatticeCells oriented_cells(std::span<const LatticeCell> cells,
+                                    const LatticeSymmetry& symmetry) {
+    LatticeCells transformed;
+    transformed.reserve(cells.size());
+    for (const auto cell : cells) {
+        const std::array corners{
+            transformed_vertex(cell, symmetry),
+            transformed_vertex({cell.x + 1, cell.y}, symmetry),
+            transformed_vertex({cell.x, cell.y + 1}, symmetry),
+            transformed_vertex({cell.x + 1, cell.y + 1}, symmetry),
+        };
+        const auto minimum_x = std::min_element(corners.begin(), corners.end(),
+                                                [](const auto& lhs, const auto& rhs) {
+                                                    return lhs.x < rhs.x;
+                                                })
+                                   ->x;
+        const auto minimum_y = std::min_element(corners.begin(), corners.end(),
+                                                [](const auto& lhs, const auto& rhs) {
+                                                    return lhs.y < rhs.y;
+                                                })
+                                   ->y;
+        transformed.push_back({minimum_x, minimum_y});
+    }
+
+    const auto minimum_x =
+        std::min_element(transformed.begin(), transformed.end(),
+                         [](const auto& lhs, const auto& rhs) { return lhs.x < rhs.x; })
+            ->x;
+    const auto minimum_y =
+        std::min_element(transformed.begin(), transformed.end(),
+                         [](const auto& lhs, const auto& rhs) { return lhs.y < rhs.y; })
+            ->y;
+    for (auto& cell : transformed) {
+        cell.x -= minimum_x;
+        cell.y -= minimum_y;
+    }
+    std::sort(transformed.begin(), transformed.end());
+    return {std::move(transformed), symmetry, {-minimum_x, -minimum_y}};
+}
+
+LatticeCells canonical_cells(std::span<const LatticeCell> cells) {
+    LatticeCells best;
+    for (const auto& symmetry : lattice_symmetries) {
+        auto candidate = oriented_cells(cells, symmetry).cells;
+        if (best.empty() || candidate < best) {
+            best = std::move(candidate);
+        }
+    }
+    return best;
+}
+
+std::vector<LatticeCells> free_polyominoes(unsigned cell_count) {
+    if (cell_count == 0) {
+        throw std::invalid_argument("polyomino cell count must be positive");
+    }
+    std::set<LatticeCells> shapes{{LatticeCells{{0, 0}}}};
+    for (unsigned size = 1; size < cell_count; ++size) {
+        std::set<LatticeCells> next;
+        for (const auto& shape : shapes) {
+            for (const auto cell : shape) {
+                for (const auto neighbour : lattice_neighbours) {
+                    const LatticeCell added{cell.x + neighbour.x, cell.y + neighbour.y};
+                    if (std::binary_search(shape.begin(), shape.end(), added)) {
+                        continue;
+                    }
+                    auto expanded = shape;
+                    expanded.push_back(added);
+                    next.insert(canonical_cells(expanded));
+                }
+            }
+        }
+        shapes = std::move(next);
+    }
+    return {shapes.begin(), shapes.end()};
+}
+
+bool contains_cell(std::span<const LatticeCell> cells, LatticeCell cell) {
+    return std::binary_search(cells.begin(), cells.end(), cell);
+}
+
+std::vector<Point> polyomino_boundary(std::span<const LatticeCell> cells) {
+    std::map<LatticeCell, LatticeCell> edges;
+    const auto add_edge = [&](LatticeCell first, LatticeCell second) {
+        if (!edges.emplace(first, second).second) {
+            throw std::invalid_argument("polyomino boundary touches itself");
+        }
+    };
+    for (const auto cell : cells) {
+        if (!contains_cell(cells, {cell.x, cell.y - 1})) {
+            add_edge({cell.x, cell.y}, {cell.x + 1, cell.y});
+        }
+        if (!contains_cell(cells, {cell.x + 1, cell.y})) {
+            add_edge({cell.x + 1, cell.y}, {cell.x + 1, cell.y + 1});
+        }
+        if (!contains_cell(cells, {cell.x, cell.y + 1})) {
+            add_edge({cell.x + 1, cell.y + 1}, {cell.x, cell.y + 1});
+        }
+        if (!contains_cell(cells, {cell.x - 1, cell.y})) {
+            add_edge({cell.x, cell.y + 1}, {cell.x, cell.y});
+        }
+    }
+    if (edges.empty()) {
+        throw std::invalid_argument("polyomino has no boundary");
+    }
+
+    const auto start = edges.begin()->first;
+    auto current = start;
+    std::vector<LatticeCell> outline;
+    do {
+        outline.push_back(current);
+        const auto edge = edges.find(current);
+        if (edge == edges.end()) {
+            throw std::invalid_argument("polyomino boundary is not a cycle");
+        }
+        current = edge->second;
+        edges.erase(edge);
+    } while (current != start);
+    if (!edges.empty()) {
+        throw std::invalid_argument("polyomino has more than one boundary cycle");
+    }
+
+    bool changed = true;
+    while (changed && outline.size() > 3) {
+        changed = false;
+        for (std::size_t i = 0; i < outline.size(); ++i) {
+            const auto previous = outline[(i + outline.size() - 1) % outline.size()];
+            const auto point = outline[i];
+            const auto next = outline[(i + 1) % outline.size()];
+            const auto incoming_x = point.x - previous.x;
+            const auto incoming_y = point.y - previous.y;
+            const auto outgoing_x = next.x - point.x;
+            const auto outgoing_y = next.y - point.y;
+            if (incoming_x * outgoing_y - incoming_y * outgoing_x == 0 &&
+                incoming_x * outgoing_x + incoming_y * outgoing_y > 0) {
+                outline.erase(outline.begin() + static_cast<std::ptrdiff_t>(i));
+                changed = true;
+                break;
+            }
+        }
+    }
+
+    std::vector<Point> boundary;
+    boundary.reserve(outline.size());
+    for (const auto vertex : outline) {
+        boundary.emplace_back(static_cast<double>(vertex.x),
+                              static_cast<double>(vertex.y));
+    }
+    return boundary;
+}
+
+LatticeCells inflated_cells(std::span<const LatticeCell> cells, int inflation) {
+    LatticeCells result;
+    result.reserve(cells.size() * static_cast<std::size_t>(inflation * inflation));
+    for (const auto cell : cells) {
+        for (int y = 0; y < inflation; ++y) {
+            for (int x = 0; x < inflation; ++x) {
+                result.push_back({inflation * cell.x + x, inflation * cell.y + y});
+            }
+        }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
+std::vector<LatticePlacement>
+polyomino_placements(std::span<const LatticeCell> shape,
+                     std::span<const LatticeCell> target) {
+    std::map<LatticeCells, OrientedLatticeCells> orientations;
+    for (const auto& symmetry : lattice_symmetries) {
+        auto oriented = oriented_cells(shape, symmetry);
+        orientations.try_emplace(oriented.cells, std::move(oriented));
+    }
+
+    const auto target_maximum_x =
+        std::max_element(target.begin(), target.end(),
+                         [](const auto& lhs, const auto& rhs) { return lhs.x < rhs.x; })
+            ->x;
+    const auto target_maximum_y =
+        std::max_element(target.begin(), target.end(),
+                         [](const auto& lhs, const auto& rhs) { return lhs.y < rhs.y; })
+            ->y;
+    std::map<LatticeCells, LatticePlacement> distinct;
+    for (const auto& [cells, orientation] : orientations) {
+        const auto maximum_x = std::max_element(cells.begin(), cells.end(),
+                                                [](const auto& lhs, const auto& rhs) {
+                                                    return lhs.x < rhs.x;
+                                                })
+                                   ->x;
+        const auto maximum_y = std::max_element(cells.begin(), cells.end(),
+                                                [](const auto& lhs, const auto& rhs) {
+                                                    return lhs.y < rhs.y;
+                                                })
+                                   ->y;
+        for (int y = 0; y <= target_maximum_y - maximum_y; ++y) {
+            for (int x = 0; x <= target_maximum_x - maximum_x; ++x) {
+                LatticeCells occupied;
+                occupied.reserve(cells.size());
+                for (const auto cell : cells) {
+                    occupied.push_back({cell.x + x, cell.y + y});
+                }
+                if (!std::includes(target.begin(), target.end(), occupied.begin(),
+                                   occupied.end())) {
+                    continue;
+                }
+                distinct.try_emplace(occupied,
+                                     LatticePlacement{occupied,
+                                                      orientation.symmetry,
+                                                      {orientation.offset.x + x,
+                                                       orientation.offset.y + y}});
+            }
+        }
+    }
+
+    std::vector<LatticePlacement> result;
+    result.reserve(distinct.size());
+    for (auto& [cells, placement] : distinct) {
+        (void)cells;
+        result.push_back(std::move(placement));
+    }
+    return result;
+}
+
+Point lattice_multiplier(const LatticeSymmetry& symmetry, double scale) {
+    switch (symmetry.quarter_turns) {
+    case 0:
+        return {scale, 0.0};
+    case 1:
+        return {0.0, scale};
+    case 2:
+        return {-scale, 0.0};
+    case 3:
+        return {0.0, -scale};
+    }
+    throw std::invalid_argument("invalid lattice rotation");
+}
+
+bool straight_polyomino(std::span<const LatticeCell> cells) {
+    return std::all_of(cells.begin(), cells.end(),
+                       [&](const auto cell) { return cell.x == cells.front().x; }) ||
+           std::all_of(cells.begin(), cells.end(),
+                       [&](const auto cell) { return cell.y == cells.front().y; });
+}
+
+std::vector<TilingSystem> polyomino_rep_tiles(unsigned cell_count) {
+    constexpr int inflation = 2;
+    constexpr std::size_t maximum_solutions_per_shape = 4096;
+    auto shapes = free_polyominoes(cell_count);
+    std::stable_sort(shapes.begin(), shapes.end(),
+                     [](const auto& lhs, const auto& rhs) {
+                         return straight_polyomino(lhs) < straight_polyomino(rhs);
+                     });
+
+    std::vector<TilingSystem> systems;
+    std::size_t shape_index = 0;
+    for (const auto& shape : shapes) {
+        const auto target = inflated_cells(shape, inflation);
+        const auto placements = polyomino_placements(shape, target);
+        std::map<LatticeCell, std::size_t> column_by_cell;
+        for (std::size_t column = 0; column < target.size(); ++column) {
+            column_by_cell.emplace(target[column], column);
+        }
+        std::vector<ExactCoverRow> rows;
+        rows.reserve(placements.size());
+        for (const auto& placement : placements) {
+            ExactCoverRow row;
+            row.columns.reserve(placement.occupied.size());
+            for (const auto cell : placement.occupied) {
+                row.columns.push_back(column_by_cell.at(cell));
+            }
+            rows.push_back(std::move(row));
+        }
+        const auto solutions = ExactCover{target.size(), std::move(rows)}.solve(
+            maximum_solutions_per_shape + 1);
+        if (solutions.size() > maximum_solutions_per_shape) {
+            throw std::runtime_error("polyomino exact-cover solution limit exceeded");
+        }
+
+        using SolutionKey = std::vector<LatticeCells>;
+        std::map<SolutionKey, std::vector<LatticePlacement>> distinct_solutions;
+        for (const auto& solution : solutions) {
+            std::vector<LatticePlacement> selected;
+            selected.reserve(solution.size());
+            for (const auto row : solution) {
+                selected.push_back(placements[row]);
+            }
+            std::sort(selected.begin(), selected.end(),
+                      [](const auto& lhs, const auto& rhs) {
+                          return lhs.occupied < rhs.occupied;
+                      });
+            SolutionKey key;
+            key.reserve(selected.size());
+            for (const auto& placement : selected) {
+                key.push_back(placement.occupied);
+            }
+            distinct_solutions.try_emplace(std::move(key), std::move(selected));
+        }
+
+        const auto straight = straight_polyomino(shape);
+        auto stem = "tile";
+        auto base_id = "polyomino-" + std::to_string(cell_count) + '-' +
+                       two_digits(static_cast<unsigned>(shape_index));
+        auto display = std::to_string(cell_count) + "-cell polyomino " +
+                       std::to_string(shape_index) + " rep-tile";
+        if (cell_count == 1) {
+            stem = "monomino";
+            base_id = "polyomino-monomino";
+            display = "Monomino rep-tile";
+        } else if (cell_count == 2) {
+            stem = "domino";
+            base_id = "polyomino-domino";
+            display = "Domino rep-tile";
+        } else if (cell_count == 3 && straight) {
+            stem = "i";
+            base_id = "polyomino-i";
+            display = "I-triomino rep-tile";
+        } else if (cell_count == 3) {
+            stem = "chair";
+            base_id = "polyomino-chair";
+            display = "Chair (L-triomino) rep-tile";
+        }
+        std::size_t solution_index = 0;
+        for (auto& [key, solution] : distinct_solutions) {
+            (void)key;
+            std::vector<Placement> children;
+            children.reserve(solution.size());
+            const auto scale = 1.0 / static_cast<double>(inflation);
+            for (const auto& placement : solution) {
+                children.push_back(
+                    {0,
+                     Similarity{{scale * static_cast<double>(placement.translation.x),
+                                 scale * static_cast<double>(placement.translation.y)},
+                                lattice_multiplier(placement.symmetry, scale),
+                                placement.symmetry.reflected}});
+            }
+            const auto suffix =
+                distinct_solutions.size() == 1
+                    ? std::string{}
+                    : '-' + two_digits(static_cast<unsigned>(solution_index));
+            systems.emplace_back(
+                SystemSpec{base_id + suffix, display, {}, stem, {1, 4, 7}},
+                std::vector<Prototile>{
+                    {0, stem, Shape::generic_polygon, polyomino_boundary(shape), 0}},
+                SubstitutionRule{static_cast<double>(inflation),
+                                 {{0, Patch{std::move(children)}}}},
+                std::vector<SeedPatch>{{stem, Patch{{Placement{0, {}}}}, 1}},
+                identity_projector());
+            ++solution_index;
+        }
+        ++shape_index;
+    }
+    return systems;
+}
+
 } // namespace
 
 CandidateReport::CandidateReport(std::vector<CandidateIssue> issues)
@@ -1049,6 +1451,20 @@ void BinarySquareSearch::enumerate(const Visitor& visit) const {
             if (!visit(binary_square_system(first, second))) {
                 return;
             }
+        }
+    }
+}
+
+PolyominoRepTileSearch::PolyominoRepTileSearch(unsigned cells) : cells_(cells) {
+    if (cells_ == 0 || cells_ > 6) {
+        throw std::invalid_argument("polyomino cell count must be from 1 to 6");
+    }
+}
+
+void PolyominoRepTileSearch::enumerate(const Visitor& visit) const {
+    for (auto& candidate : polyomino_rep_tiles(cells_)) {
+        if (!visit(std::move(candidate))) {
+            return;
         }
     }
 }

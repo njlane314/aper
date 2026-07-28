@@ -1,3 +1,5 @@
+#include "definition.hpp"
+#include "library.hpp"
 #include "pdf.hpp"
 #include "system.hpp"
 #include "version.hpp"
@@ -5,7 +7,10 @@
 
 #include <charconv>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -14,18 +19,24 @@
 namespace {
 
 struct Options {
-    const aper::TilingSystem* system = nullptr;
+    std::string tiling = "p3";
+    std::string file;
+    std::filesystem::path library_directory;
     std::string seed;
     aper::ColourScheme colour_scheme = aper::default_colour_scheme;
     unsigned depth = 0;
     bool rule = false;
+    bool definition = false;
+    bool tiling_selected = false;
+    bool file_selected = false;
+    bool library_selected = false;
     bool seed_selected = false;
     bool depth_selected = false;
 };
 
-std::string system_names() {
+std::string system_names(const aper::TilingCatalogue& catalogue) {
     std::string names;
-    const auto& systems = aper::tiling_catalogue().systems();
+    const auto& systems = catalogue.systems();
     for (std::size_t i = 0; i < systems.size(); ++i) {
         if (i != 0) {
             names += i + 1 == systems.size() ? ", or " : ", ";
@@ -36,12 +47,18 @@ std::string system_names() {
 }
 
 void help(std::ostream& output) {
-    output << "usage: aper [-t type] [-s seed] [-c scheme] [-n depth] [-r]\n"
+    aper::RuleLibrary library;
+    library.add_default_directory();
+    library.add_fallback(aper::tiling_catalogue());
+    const auto& catalogue = library.catalogue();
+
+    output << "usage: aper [-t type | -f file] [-s seed] [-c scheme] [-n depth] [-r]\n"
+              "       aper [-t type | -f file] --definition\n"
               "\n"
               "Draw a substitution-tiling patch or rule sheet as PDF.\n"
               "\n"
-              "  -t, --tiling TYPE  choose a tiling system (default: p3)\n";
-    for (const auto& system : aper::tiling_catalogue().systems()) {
+              "  -t, --tiling TYPE  choose a library tiling system (default: p3)\n";
+    for (const auto& system : catalogue.systems()) {
         output << "                     " << system.spec().id << ": "
                << system.spec().name;
         if (!system.spec().aliases.empty()) {
@@ -57,8 +74,11 @@ void help(std::ostream& output) {
         output << '\n';
     }
 
-    output << "  -s, --seed NAME    choose the patch's starting design\n";
-    for (const auto& system : aper::tiling_catalogue().systems()) {
+    output << "  -f, --file FILE    read a declarative .aper system; - means stdin\n"
+              "  -L, --library DIR add every .aper definition below DIR\n"
+              "                     (default: ./rules, then the installed library)\n"
+              "  -s, --seed NAME    choose the patch's starting design\n";
+    for (const auto& system : catalogue.systems()) {
         output << "                     " << system.spec().id << ": ";
         for (std::size_t i = 0; i < system.seeds().size(); ++i) {
             if (i != 0) {
@@ -79,15 +99,17 @@ void help(std::ostream& output) {
     output << "  -c, --colour NAME  flare, grove, electric, or tide\n"
               "                     (default: flare)\n"
               "  -n, --depth N      set patch substitution depth\n";
-    for (const auto& system : aper::tiling_catalogue().systems()) {
+    for (const auto& system : catalogue.systems()) {
         const auto depth = system.spec().depths;
         output << "                     " << system.spec().id << ": " << depth.minimum
                << '-' << depth.maximum << " (default: " << depth.recommended << ")\n";
     }
-    output << "  -r, --rule         draw every prototile substitution rule\n"
-              "                     (seed and depth are patch-only)\n"
-              "  -h, --help         show this help\n"
-              "  -V, --version      show the version\n";
+    output
+        << "  -r, --rule         draw every prototile substitution rule\n"
+           "                     (seed and depth are patch-only)\n"
+           "      --definition   write the selected system as normalised .aper text\n"
+           "  -h, --help         show this help\n"
+           "  -V, --version      show the version\n";
 }
 
 aper::ColourScheme parse_colour_scheme(std::string_view text) {
@@ -107,10 +129,11 @@ aper::ColourScheme parse_colour_scheme(std::string_view text) {
         "colour scheme must be flare, grove, electric, or tide");
 }
 
-const aper::TilingSystem& parse_tiling(std::string_view text) {
-    const auto* system = aper::tiling_catalogue().find(text);
+const aper::TilingSystem& parse_tiling(std::string_view text,
+                                       const aper::TilingCatalogue& catalogue) {
+    const auto* system = catalogue.find(text);
     if (system == nullptr) {
-        throw std::invalid_argument("tiling must be " + system_names());
+        throw std::invalid_argument("tiling must be " + system_names(catalogue));
     }
     return *system;
 }
@@ -127,7 +150,6 @@ unsigned parse_depth(std::string_view text) {
 
 Options parse_options(int argc, char** argv) {
     Options options;
-    options.system = &aper::tiling_catalogue().get("p3");
 
     for (int i = 1; i < argc; ++i) {
         const std::string_view argument = argv[i];
@@ -142,6 +164,10 @@ Options parse_options(int argc, char** argv) {
         }
         if (argument == "-r" || argument == "--rule") {
             options.rule = true;
+            continue;
+        }
+        if (argument == "--definition") {
+            options.definition = true;
             continue;
         }
         if (argument == "-s" || argument == "--seed") {
@@ -178,11 +204,43 @@ Options parse_options(int argc, char** argv) {
                                                 ? "option -t requires a tiling"
                                                 : "option --tiling requires a tiling");
             }
-            options.system = &parse_tiling(argv[i]);
+            options.tiling = argv[i];
+            options.tiling_selected = true;
             continue;
         }
         if (argument.starts_with("--tiling=")) {
-            options.system = &parse_tiling(argument.substr(9));
+            options.tiling = argument.substr(9);
+            options.tiling_selected = true;
+            continue;
+        }
+        if (argument == "-f" || argument == "--file") {
+            if (++i == argc) {
+                throw std::invalid_argument(argument == "-f"
+                                                ? "option -f requires a file"
+                                                : "option --file requires a file");
+            }
+            options.file = argv[i];
+            options.file_selected = true;
+            continue;
+        }
+        if (argument.starts_with("--file=")) {
+            options.file = argument.substr(7);
+            options.file_selected = true;
+            continue;
+        }
+        if (argument == "-L" || argument == "--library") {
+            if (++i == argc) {
+                throw std::invalid_argument(
+                    argument == "-L" ? "option -L requires a directory"
+                                     : "option --library requires a directory");
+            }
+            options.library_directory = argv[i];
+            options.library_selected = true;
+            continue;
+        }
+        if (argument.starts_with("--library=")) {
+            options.library_directory = argument.substr(10);
+            options.library_selected = true;
             continue;
         }
         if (argument == "-n" || argument == "--depth") {
@@ -215,29 +273,48 @@ Options parse_options(int argc, char** argv) {
     if (options.seed_selected && options.seed.empty()) {
         throw std::invalid_argument("seed must not be empty");
     }
-    if (options.rule) {
+    if (options.file_selected && options.file.empty()) {
+        throw std::invalid_argument("file must not be empty");
+    }
+    if (options.file_selected && options.tiling_selected) {
+        throw std::invalid_argument("file and tiling options are mutually exclusive");
+    }
+    if (options.file_selected && options.library_selected) {
+        throw std::invalid_argument("file and library options are mutually exclusive");
+    }
+    if (options.rule && options.definition) {
+        throw std::invalid_argument(
+            "rule and definition outputs are mutually exclusive");
+    }
+    if (options.rule || options.definition) {
         if (options.seed_selected || options.depth_selected) {
             throw std::invalid_argument(
                 "seed and depth options are only available for patch output");
         }
-        return options;
+    }
+    return options;
+}
+
+void resolve_patch_options(Options& options, const aper::TilingSystem& system) {
+    if (options.rule || options.definition) {
+        return;
     }
 
     if (!options.seed_selected) {
-        options.seed = options.system->spec().default_seed;
+        options.seed = system.spec().default_seed;
     }
     if (!options.depth_selected) {
-        options.depth = options.system->spec().depths.recommended;
+        options.depth = system.spec().depths.recommended;
     }
-    const auto* seed = options.system->find_seed(options.seed);
+    const auto* seed = system.find_seed(options.seed);
     if (seed == nullptr) {
         throw std::invalid_argument(options.seed + " seed is not available for " +
-                                    options.system->spec().name);
+                                    system.spec().name);
     }
-    const auto depths = options.system->spec().depths;
+    const auto depths = system.spec().depths;
     if (options.depth < depths.minimum || options.depth > depths.maximum) {
         throw std::invalid_argument(
-            options.system->spec().name + " depth must be an integer from " +
+            system.spec().name + " depth must be an integer from " +
             std::to_string(depths.minimum) + " to " + std::to_string(depths.maximum));
     }
     if (options.depth < seed->minimum_depth) {
@@ -245,21 +322,52 @@ Options parse_options(int argc, char** argv) {
                                     std::to_string(seed->minimum_depth) + " to " +
                                     std::to_string(depths.maximum));
     }
-    return options;
+}
+
+aper::TilingSystem read_system(std::string_view file) {
+    if (file == "-") {
+        return aper::SystemReader{}.read(std::cin, "standard input");
+    }
+    std::ifstream input{std::string(file)};
+    if (!input) {
+        throw std::invalid_argument("could not open tiling definition: " +
+                                    std::string(file));
+    }
+    return aper::SystemReader{}.read(input, file);
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
     try {
-        const auto options = parse_options(argc, argv);
-        const auto drawing =
-            options.rule ? aper::RuleView{*options.system}.drawing()
-                         : aper::PatchView{*options.system, options.seed, options.depth}
-                               .drawing();
-        aper::PdfRenderer{}.write(std::cout, drawing, options.colour_scheme);
+        auto options = parse_options(argc, argv);
+        std::optional<aper::TilingSystem> loaded;
+        aper::RuleLibrary library;
+        if (options.file_selected) {
+            loaded.emplace(read_system(options.file));
+        } else {
+            if (options.library_selected) {
+                library.add_directory(options.library_directory);
+            } else {
+                library.add_default_directory();
+            }
+            library.add_fallback(aper::tiling_catalogue());
+        }
+        const auto& system = loaded.has_value()
+                                 ? *loaded
+                                 : parse_tiling(options.tiling, library.catalogue());
+        resolve_patch_options(options, system);
+        if (options.definition) {
+            aper::SystemWriter{}.write(std::cout, system);
+        } else {
+            const auto drawing =
+                options.rule
+                    ? aper::RuleView{system}.drawing()
+                    : aper::PatchView{system, options.seed, options.depth}.drawing();
+            aper::PdfRenderer{}.write(std::cout, drawing, options.colour_scheme);
+        }
         if (!std::cout) {
-            throw std::runtime_error("could not write PDF to standard output");
+            throw std::runtime_error("could not write output to standard output");
         }
     } catch (const std::invalid_argument& error) {
         std::cerr << "aper: " << error.what()

@@ -1,5 +1,6 @@
 #include "bank.hpp"
 #include "discovery.hpp"
+#include "library.hpp"
 #include "pdf.hpp"
 #include "penrose.hpp"
 #include "system.hpp"
@@ -375,15 +376,10 @@ void test_p1_substitution() {
 
 void test_substitution_systems() {
     const auto& catalogue = aper::tiling_catalogue();
-    CHECK(catalogue.systems().size() == 7);
-    constexpr std::array<std::string_view, 7> source_records{
-        "penrose-pentagon-boat-star",
-        "penrose-kite-dart",
-        "penrose-rhomb",
-        "ammann-beenker-rhomb-triangle",
-        "pinwheel",
-        "stampflis-12-fold-1",
-        "thue-morse-2d",
+    CHECK(catalogue.systems().size() == 6);
+    constexpr std::array<std::string_view, 6> source_records{
+        "penrose-pentagon-boat-star",    "penrose-kite-dart", "penrose-rhomb",
+        "ammann-beenker-rhomb-triangle", "pinwheel",          "stampflis-12-fold-1",
     };
     for (std::size_t i = 0;
          i < std::min(catalogue.systems().size(), source_records.size()); ++i) {
@@ -410,8 +406,6 @@ void test_substitution_systems() {
     CHECK(catalogue.find("ab") == &aper::tiling_system(aper::Tiling::ammann_beenker));
     CHECK(catalogue.find("stampfli-12-fold-1") ==
           &aper::tiling_system(aper::Tiling::stampfli));
-    CHECK(catalogue.find("thue-morse-2d") == &catalogue.systems().back());
-    CHECK(catalogue.find("thue-morse") == &catalogue.systems().back());
     CHECK(catalogue.find("unknown") == nullptr);
 
     for (const auto& system : catalogue.systems()) {
@@ -456,7 +450,9 @@ void test_substitution_systems() {
     }
     CHECK(rejected_unrenderable_depth);
 
-    const auto& thue_morse = catalogue.get("thue-morse-2d");
+    aper::RuleLibrary file_rules;
+    file_rules.add_directory("rules");
+    const auto& thue_morse = file_rules.catalogue().get("thue-morse-2d");
     CHECK(thue_morse.spec().name == "Thue-Morse 2D");
     CHECK(thue_morse.prototiles().size() == 2);
     CHECK(thue_morse.rule().inflation() == 2.0);
@@ -629,7 +625,7 @@ void test_discovery() {
         aper::GeometricValidator{{1.0e-8, 3, 256}}.validate(known_penrose);
     CHECK(known_penrose_report.valid());
     const aper::KnownTilingBank known_bank{aper::tiling_catalogue()};
-    CHECK(known_bank.systems().size() == 7);
+    CHECK(known_bank.systems().size() == 6);
     const auto known_matches = known_bank.classify(known_penrose);
     CHECK(known_matches.size() == 1);
     if (!known_matches.empty()) {
@@ -953,7 +949,10 @@ void test_binary_square_search() {
         });
     CHECK(thue_candidate != first.candidates.end());
     CHECK(forgetting_candidate != first.candidates.end());
-    const aper::KnownTilingBank bank{aper::tiling_catalogue()};
+    aper::RuleLibrary library;
+    library.add_directory("rules");
+    library.add_fallback(aper::tiling_catalogue());
+    const aper::KnownTilingBank bank{library.catalogue()};
     if (thue_candidate != first.candidates.end()) {
         const auto source_matches = bank.classify(thue_candidate->system, source);
         const auto generic_matches = bank.classify(thue_candidate->system);
@@ -962,19 +961,156 @@ void test_binary_square_search() {
         if (!source_matches.empty()) {
             CHECK(source_matches.front().kind == aper::KnownMatchKind::exact_rule);
             CHECK(source_matches.front().system ==
-                  &aper::tiling_catalogue().get("thue-morse-2d"));
+                  &library.catalogue().get("thue-morse-2d"));
         }
     }
     const auto reframed_matches = bank.classify(at(9, 6), source);
     CHECK(reframed_matches.size() == 1);
     if (!reframed_matches.empty()) {
         CHECK(reframed_matches.front().system ==
-              &aper::tiling_catalogue().get("thue-morse-2d"));
+              &library.catalogue().get("thue-morse-2d"));
     }
     if (forgetting_candidate != first.candidates.end()) {
         CHECK(bank.classify(forgetting_candidate->system).empty());
         CHECK(bank.classify(forgetting_candidate->system, source).empty());
     }
+}
+
+void test_polyomino_search() {
+    bool rejected_zero_cells = false;
+    try {
+        (void)aper::PolyominoRepTileSearch{0};
+    } catch (const std::invalid_argument&) {
+        rejected_zero_cells = true;
+    }
+    CHECK(rejected_zero_cells);
+    bool rejected_seven_cells = false;
+    try {
+        (void)aper::PolyominoRepTileSearch{7};
+    } catch (const std::invalid_argument&) {
+        rejected_seven_cells = true;
+    }
+    CHECK(rejected_seven_cells);
+
+    constexpr std::array<std::size_t, 6> expected_raw{1, 5, 2, 6, 3, 3};
+    const aper::GeometricValidator shallow_validator{{1.0e-9, 2, 64}};
+    for (unsigned cells = 1; cells <= expected_raw.size(); ++cells) {
+        const auto raw = collect(aper::PolyominoRepTileSearch{cells});
+        CHECK(raw.size() == expected_raw[cells - 1]);
+        for (const auto& candidate : raw) {
+            CHECK(candidate.validate().empty());
+            CHECK(candidate.prototiles().size() == 1);
+            CHECK(candidate.rule().inflation() == 2.0);
+            CHECK(candidate.rule().replacement(0).size() == 4);
+            CHECK(candidate.rule().incidence_matrix(1) == aper::IncidenceMatrix{{4}});
+            CHECK(aper::area_eigenvalue_matches(candidate));
+            CHECK(shallow_validator.validate(candidate).valid());
+        }
+    }
+
+    const aper::PolyominoRepTileSearch source;
+    CHECK(source.cells() == 3);
+    const auto raw = collect(source);
+    CHECK(raw.size() == 2);
+    if (raw.size() != 2) {
+        return;
+    }
+    const auto& chair = raw[0];
+    const auto& strip = raw[1];
+    CHECK(chair.spec().id == "polyomino-chair");
+    CHECK(chair.spec().default_seed == "chair");
+    CHECK(strip.spec().id == "polyomino-i");
+    CHECK(strip.spec().default_seed == "i");
+    CHECK(chair.prototile(0).boundary.size() == 6);
+    CHECK(strip.prototile(0).boundary.size() == 4);
+    const auto& chair_boundary = chair.prototile(0).boundary;
+    bool concave = false;
+    for (std::size_t i = 0; i < chair_boundary.size(); ++i) {
+        concave |=
+            turn(
+                chair_boundary[(i + chair_boundary.size() - 1) % chair_boundary.size()],
+                chair_boundary[i],
+                chair_boundary[(i + 1) % chair_boundary.size()]) < 0.0;
+    }
+    CHECK(concave);
+
+    struct ExpectedPose {
+        aper::Point translation;
+        aper::Point multiplier;
+    };
+    constexpr std::array expected_poses{
+        ExpectedPose{{0.0, 0.0}, {0.5, 0.0}},
+        ExpectedPose{{0.0, 2.0}, {0.0, -0.5}},
+        ExpectedPose{{0.5, 0.5}, {0.5, 0.0}},
+        ExpectedPose{{2.0, 0.0}, {0.0, 0.5}},
+    };
+    const auto chair_children = chair.rule().replacement(0).placements();
+    CHECK(chair_children.size() == expected_poses.size());
+    for (const auto& expected : expected_poses) {
+        CHECK(std::any_of(
+            chair_children.begin(), chair_children.end(), [&](const auto& placement) {
+                return placement.prototile == 0 &&
+                       placement.pose.translation() == expected.translation &&
+                       placement.pose.multiplier() == expected.multiplier &&
+                       !placement.pose.reflected();
+            }));
+    }
+
+    std::size_t expected_tiles = 1;
+    for (unsigned depth = 0; depth <= 5; ++depth) {
+        CHECK(chair.generate_raw("chair", depth).size() == expected_tiles);
+        expected_tiles *= 4;
+    }
+    const aper::GeometricValidator validator{{1.0e-9, 5, 2048}};
+    CHECK(validator.validate(chair).valid());
+    CHECK(validator.validate(strip).valid());
+
+    const aper::DiscoveryOptions options{{1.0e-9, 5, 2048}, 4096, 4096, true};
+    const auto first = aper::DiscoveryEngine{options}.run(source);
+    const auto second = aper::DiscoveryEngine{options}.run(source);
+    CHECK(first.statistics.generated == 2);
+    CHECK(first.statistics.structurally_valid == 2);
+    CHECK(first.statistics.algebraically_valid == 2);
+    CHECK(first.statistics.geometrically_valid == 2);
+    CHECK(first.statistics.canonicalised == 2);
+    CHECK(first.statistics.unique == 2);
+    CHECK(first.candidates.size() == 2);
+    CHECK(second.candidates.size() == first.candidates.size());
+    for (std::size_t i = 0;
+         i < std::min(first.candidates.size(), second.candidates.size()); ++i) {
+        CHECK(first.candidates[i].serialisation == second.candidates[i].serialisation);
+        CHECK(first.candidates[i].system.spec().id ==
+              second.candidates[i].system.spec().id);
+    }
+
+    aper::RuleLibrary library;
+    library.add_directory("rules");
+    library.add_fallback(aper::tiling_catalogue());
+    const auto& known_chair = library.catalogue().get("chair");
+    CHECK(validator.validate(known_chair).valid());
+    CHECK(aper::canonical_key(chair) == aper::canonical_key(known_chair));
+    const aper::KnownTilingBank bank{library.catalogue()};
+    const auto matches = bank.classify(chair);
+    CHECK(matches.size() == 1);
+    if (!matches.empty()) {
+        CHECK(matches.front().system == &known_chair);
+    }
+    CHECK(bank.classify(strip).empty());
+
+    std::size_t visited = 0;
+    source.enumerate([&](aper::TilingSystem) {
+        ++visited;
+        return false;
+    });
+    CHECK(visited == 1);
+
+    const auto rule = aper::RuleView{chair}.drawing();
+    CHECK(rule.polygons().size() == 5);
+    CHECK(rule.arrows().size() == 1);
+    CHECK(rule.metadata().title == "Chair (L-triomino) rep-tile substitution rule");
+    const auto patch = aper::PatchView{chair, "chair", 3}.drawing();
+    CHECK(!patch.empty());
+    CHECK(patch.polygons().size() <= 64);
 }
 
 void check_seed(const SeedFixture& fixture) {
@@ -1625,6 +1761,7 @@ int main() {
     test_substitution_systems();
     test_discovery();
     test_binary_square_search();
+    test_polyomino_search();
     test_seed_counts_and_area();
     test_p1_substitution();
     test_p2_vertex_seeds();

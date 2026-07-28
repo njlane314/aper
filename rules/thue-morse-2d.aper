@@ -1,0 +1,39 @@
+aper 1
+id thue-morse-2d
+name "Thue-Morse 2D"
+alias thue-morse
+inflation 2
+depths 1 4 7
+default-seed a
+deduplicate false
+source "Tilings Encyclopedia" "thue-morse-2d" "https://tilings.math.uni-bielefeld.de/substitution/thue-morse-2d/" "D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia" "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+
+tile a 0
+polygon 0 0  1 0  1 1  0 1
+end
+
+tile b 15
+polygon 0 0  1 0  1 1  0 1
+end
+
+rule a
+child a 0 0 0 normal
+child b 1 0 0 normal
+child b 0 1 0 normal
+child a 1 1 0 normal
+end
+
+rule b
+child b 0 0 0 normal
+child a 1 0 0 normal
+child a 0 1 0 normal
+child b 1 1 0 normal
+end
+
+seed a 1
+place a 0 0 1 0 normal
+end
+
+seed b 1
+place b 0 0 1 0 normal
+end

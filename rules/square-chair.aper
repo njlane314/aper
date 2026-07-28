@@ -1,0 +1,57 @@
+aper 1
+id square-chair
+name "Square Chair"
+alias squar-chair
+inflation 2
+depths 1 5 8
+default-seed north-west
+deduplicate false
+source "Tilings Encyclopedia" "squar-chair" "https://tilings.math.uni-bielefeld.de/substitution/squar-chair/" "D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia" "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+
+tile north-west 0
+polygon 0 0  1 0  1 1  0 1
+end
+
+tile south-west 5
+polygon 0 0  1 0  1 1  0 1
+end
+
+tile north-east 10
+polygon 0 0  1 0  1 1  0 1
+end
+
+tile south-east 15
+polygon 0 0  1 0  1 1  0 1
+end
+
+rule north-west
+child north-west 0 1 0 normal
+child north-east 1 1 0 normal
+child south-west 0 0 0 normal
+child north-west 1 0 0 normal
+end
+
+rule south-west
+child north-west 0 1 0 normal
+child south-west 1 1 0 normal
+child south-west 0 0 0 normal
+child south-east 1 0 0 normal
+end
+
+rule north-east
+child south-east 0 1 0 normal
+child north-east 1 1 0 normal
+child north-east 0 0 0 normal
+child north-west 1 0 0 normal
+end
+
+rule south-east
+child south-east 0 1 0 normal
+child north-east 1 1 0 normal
+child south-west 0 0 0 normal
+child south-east 1 0 0 normal
+end
+
+seed north-west 1
+place north-west 0 0 1 0 normal
+end

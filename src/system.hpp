@@ -132,6 +132,8 @@ class PatchProjector {
 class TilingSystem {
   public:
     TilingSystem(SystemSpec spec, std::vector<Prototile> prototiles,
+                 SubstitutionRule rule, std::vector<SeedPatch> seeds);
+    TilingSystem(SystemSpec spec, std::vector<Prototile> prototiles,
                  SubstitutionRule rule, std::vector<SeedPatch> seeds,
                  std::shared_ptr<const PatchProjector> projector);
 

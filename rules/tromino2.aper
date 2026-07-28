@@ -1,0 +1,38 @@
+aper 1
+id tromino2
+name "Tromino 2"
+inflation 2
+depths 1 5 8
+default-seed l
+deduplicate false
+source "Tilings Encyclopedia" "tromino2" "https://tilings.math.uni-bielefeld.de/substitution/tromino2/" "D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia" "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+
+tile l 3
+polygon 0 0  2 0  2 2  1 2  1 1  0 1
+end
+
+tile bar 13
+polygon 0 0  3 0  3 1  0 1
+end
+
+rule l
+child l 2 2 180 normal
+child bar 1 0 0 normal
+child bar 3 1 90 normal
+child bar 4 1 90 normal
+end
+
+rule bar
+child l 2 2 180 normal
+child l 4 0 0 normal
+child bar 1 0 0 normal
+child bar 2 1 0 normal
+end
+
+seed l 1
+place l 0 0 1 0 normal
+end
+
+seed bar 1
+place bar 0 0 1 0 normal
+end

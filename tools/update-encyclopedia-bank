@@ -20,12 +20,20 @@ REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = REPOSITORY / "data" / "encyclopedia.tsv"
 LOCAL_SYSTEMS = {
     "ammann-beenker-rhomb-triangle": "ammann-beenker",
+    "chair": "chair",
+    "domino": "domino",
     "penrose-kite-dart": "p2",
     "penrose-pentagon-boat-star": "p1",
     "penrose-rhomb": "p3",
+    "pentomino": "pentomino",
     "pinwheel": "pinwheel",
+    "period-tripling-2d": "period-tripling-2d",
+    "squar-chair": "square-chair",
+    "squiral-block": "squiral-block",
     "stampflis-12-fold-1": "stampfli",
     "thue-morse-2d": "thue-morse-2d",
+    "tromino1": "tromino1",
+    "tromino2": "tromino2",
 }
 
 
@@ -161,7 +169,7 @@ def render(
         f"# source: {SOURCE}",
         "# attribution: D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia",
         f"# licence: {LICENCE}",
-        "# changes: whitespace normalised, records sorted by slug, aper ids added",
+        "# changes: whitespace normalised, records sorted by slug, page URLs constructed, aper ids added",
         "# aper_system: - denotes a reference-only record",
     ]
     if last_modified:

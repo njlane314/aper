@@ -1,0 +1,23 @@
+aper 1
+id square-file
+name "Square file"
+alias square-example
+inflation 2
+depths 1 3 6
+default-seed square
+deduplicate false
+
+tile square 0
+polygon 0 0  1 0  1 1  0 1
+end
+
+rule square
+child square 0 0 0 normal
+child square 1 0 0 normal
+child square 0 1 0 normal
+child square 1 1 0 normal
+end
+
+seed square 1
+place square 0 0 1 0 normal
+end

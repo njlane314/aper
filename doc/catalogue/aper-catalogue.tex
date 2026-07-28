@@ -149,33 +149,38 @@
 \section*{Method and status}
 \markboth{Method and status}{Method and status}
 
-The \CatalogueNativeCount\ \emph{native} records are rendered directly by
-\texttt{aper} from
-locally encoded \texttt{TilingSystem} objects. Their rule panels contain every
-encoded prototile replacement; their patch panels use the fixed seed, depth,
-and colour recorded in \texttt{doc/catalogue/systems.tsv}. Structural validity
+The \CatalogueNativeCount\ \emph{native} records are locally encoded as
+executable geometry and rendered directly by \texttt{aper}.
+Here \emph{native} means that the prototiles, transformations, replacements,
+and seeds are executable data; it does not mean that an Encyclopedia diagram
+has been imported as a rule. Their patch panels use the fixed seed, depth, and
+colour recorded in \texttt{doc/catalogue/systems.tsv}. Structural validity
 does not imply that every presentation rule is a disjoint literal polygon
-partition.
+partition. Native also does not mean a pixel-for-pixel or decoration-complete
+reconstruction: source colours, labels, and orientation marks may be omitted.
 
 The remaining bank records are \emph{reference only}. Their metadata and any
 available patch or rule artwork come from the Tilings Encyclopedia snapshot
-and reference-art manifest. They have not been reconstructed, geometrically
-validated, or classified by \texttt{aper}. Missing artwork is printed as an
-explicit placeholder; in particular, a missing rule image does not mean that
-no mathematical rule exists.
+and reference-art manifest. A diagram is evidence and illustration, not an
+executable substitution: these records have not been reconstructed,
+geometrically validated, or classified by \texttt{aper}. Missing artwork is
+printed as an explicit placeholder; in particular, a missing rule image does
+not mean that no mathematical rule exists.
 
-The bounded binary-square search enumerates, validates, canonicalises, and
-deduplicates a finite search space. Exact-bank comparison covers only the
-local encodings and only canonical rule equality. It does not detect broader
-equivalences such as MLD, nor establish novelty, nonperiodicity, or
-aperiodicity.
+The bounded geometric search enumerates every free connected triomino and uses
+exact cover to dissect each twofold inflation into four rotated or reflected
+copies. It rediscovers the classical Chair construction from the L-triomino;
+the straight I-triomino is a periodic control. Exact-bank comparison covers
+only locally encoded systems and canonical rule equality. It does not
+detect broader equivalences such as MLD, nor establish novelty,
+nonperiodicity, or aperiodicity.
 
 \section*{Reproducibility and licence}
 
 The catalogue build performs no network access. Source files are copied to
 sanitised generated paths, their SHA-256 values are verified, and any media
 conversion is stated on its plate. The exact native rendering command is also
-printed beneath each local image. The source metadata report
+printed beneath each local image. The reference-art manifest supplies
 \CatalogueReferencePatchCount\ patch images and
 \CatalogueReferenceRuleCount\ rule images available for reference-only
 records; all other panels are labelled missing.

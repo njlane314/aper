@@ -1,0 +1,44 @@
+aper 1
+id period-tripling-2d
+name "Period Tripling 2D"
+inflation 3
+depths 1 4 6
+default-seed diagonal
+deduplicate false
+source "Tilings Encyclopedia" "period-tripling-2d" "https://tilings.math.uni-bielefeld.de/substitution/period-tripling-2d/" "D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia" "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+
+tile diagonal 4
+polygon 0 0  1 0  1 1  0 1
+end
+
+tile plain 12
+polygon 0 0  1 0  1 1  0 1
+end
+
+rule diagonal
+child diagonal 0 2 0 normal
+child plain 1 2 0 normal
+child plain 2 2 0 normal
+child plain 0 1 0 normal
+child diagonal 1 1 0 normal
+child plain 2 1 0 normal
+child plain 0 0 0 normal
+child plain 1 0 0 normal
+child diagonal 2 0 0 normal
+end
+
+rule plain
+child plain 0 2 0 normal
+child plain 1 2 0 normal
+child plain 2 2 0 normal
+child plain 0 1 0 normal
+child plain 1 1 0 normal
+child plain 2 1 0 normal
+child plain 0 0 0 normal
+child plain 1 0 0 normal
+child plain 2 0 0 normal
+end
+
+seed diagonal 1
+place diagonal 0 0 1 0 normal
+end

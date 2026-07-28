@@ -1,0 +1,24 @@
+aper 1
+id chair
+name "Chair"
+alias l-triomino
+inflation 2
+depths 1 5 8
+default-seed chair
+deduplicate false
+source "Tilings Encyclopedia" "chair" "https://tilings.math.uni-bielefeld.de/substitution/chair/" "D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia" "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+
+tile chair 0
+polygon 0 0  2 0  2 1  1 1  1 2  0 2
+end
+
+rule chair
+child chair 0 0 0 normal
+child chair 0 4 -90 normal
+child chair 1 1 0 normal
+child chair 4 0 90 normal
+end
+
+seed chair 1
+place chair 0 0 1 0 normal
+end

@@ -4,6 +4,6 @@
 
 namespace aper {
 
-inline constexpr std::string_view version = "0.8.0";
+inline constexpr std::string_view version = "0.10.0";
 
 } // namespace aper

@@ -1,29 +1,43 @@
 .TH APER 1 "July 28, 2026" "aper" "User Commands"
 .SH NAME
-aper \- render substitution tilings as PDF
+aper \- render and serialise substitution-tiling systems
 .SH SYNOPSIS
 .B aper
-.RB [ \-t " type" ]
+.RB [ \-L " directory" ]
+.RB [ \-t " type" " | " \-f " file" ]
 .RB [ \-s " seed" ]
 .RB [ \-c " scheme" ]
 .RB [ \-n " depth" ]
 .RB [ \-r ]
+.br
+.B aper
+.RB [ \-L " directory" ]
+.RB [ \-t " type" " | " \-f " file" ]
+.B \--definition
 .br
 .BR aper " " { \-h | \-\-help }
 .br
 .BR aper " " { \-V | \-\-version }
 .SH DESCRIPTION
 .B aper
-generates either a clipped, edge-to-edge Penrose, Ammann-Beenker, Pinwheel,
-Stampfli 12-fold 1, or two-dimensional Thue-Morse tiling patch, or a sheet
-showing a tiling system's substitution rules, and writes a complete native
-vector PDF to standard output.
+generates either a clipped substitution-tiling patch or a sheet showing every
+prototile replacement, and writes a complete native vector PDF to standard
+output.  Systems may be selected from a rule library and its built-in
+fallbacks, or read from one declarative file containing polygonal prototiles,
+similarities, rules, and seeds.  A selected system may instead be written in
+normalised declarative form.
 Diagnostics are written to standard error, so the PDF can be redirected or
 piped without contamination.
+.PP
+Declarative systems are checked for structural and area consistency, simple
+parent polygons, containment, overlap, gaps, and matching internal edges before
+they are rendered.  Version 1 covers finite planar polygon substitutions with
+a scalar inflation and rotated or reflected similarities.
 .SH OPTIONS
 .TP
 .BR \-t ", " \-\-tiling " " type
-Select
+Select a system by identifier or alias from the composed rule library.
+The six legacy built-in systems are
 .B p1
 for three pentagon types, a diamond, a boat, and a star,
 .B p2
@@ -35,9 +49,21 @@ for squares and 45-degree rhombs,
 .B pinwheel
 for right triangles,
 .B stampfli
-for the three-tile 12-fold 1 rule, or
+for the three-tile 12-fold 1 rule.
+The distributed declarative library adds
 .B thue-morse-2d
-for complementary binary square blocks.
+for complementary binary square blocks,
+.B chair
+for the L-triomino rep-tile,
+.B domino
+for the table tiling,
+.BR square-chair ,
+.BR squiral-block ,
+.BR period-tripling-2d ,
+.BR pentomino ,
+.BR tromino1 ,
+and
+.BR tromino2 .
 The descriptive aliases
 .BR pentagon-boat-star ,
 .BR kite-dart ,
@@ -52,6 +78,39 @@ and the
 alias are also accepted.
 The default is
 .BR p3 .
+Definitions loaded with
+.B \--library
+may provide additional identifiers and aliases.
+.TP
+.BR \-f ", " \-\-file " " file
+Read one declarative
+.B .aper
+system instead of selecting a library system.
+A file contains named polygonal prototiles, an inflation, one replacement per
+type, and named seeds.
+Use
+.B \-
+to read standard input.
+This option may not be combined with
+.B \--tiling
+or
+.BR \--library .
+.TP
+.BR \-L ", " \-\-library " " directory
+Recursively load every
+.B .aper
+definition below
+.IR directory ,
+then add the built-in catalogue as fallbacks.
+Without this option, aper first tries
+.I ./rules
+and, when that directory is absent, the installed
+.I PREFIX/share/aper/rules
+library.
+A file definition with a built-in identifier must describe the same canonical
+rule, and a library alias may not shadow a built-in identifier.
+This option may not be combined with
+.BR \--file .
 .TP
 .BR \-s ", " \-\-seed " " seed
 Select the patch's starting design.
@@ -95,6 +154,7 @@ Thue-Morse 2D provides
 .B a
 and
 .BR b .
+Chair and Domino each provide a seed with the same name as the system.
 P1 defaults to
 .BR pentagon-5 ;
 P2 and P3 default to
@@ -107,6 +167,8 @@ Stampfli 12-fold 1 defaults to
 .BR dodecagon ;
 and Thue-Morse 2D defaults to
 .BR a .
+Chair and Domino default to their eponymous seeds.
+Library and file-defined systems declare their own default.
 The P3
 .B thin
 seed requires a depth of at least 2.
@@ -130,12 +192,24 @@ Ammann-Beenker accepts 1 through 6 and defaults to 4.
 Pinwheel accepts 1 through 8 and defaults to 6.
 Stampfli 12-fold 1 accepts 1 through 3 and defaults to 2.
 Thue-Morse 2D accepts 1 through 7 and defaults to 4.
+Chair and Domino accept 1 through 8 and default to 5.
+Library and file-defined systems declare their own range.
 .TP
 .BR \-r ", " \-\-rule
 Render a sheet containing every prototile and its one-step substitution
 instead of a finite patch.
 The tiling and colour options still apply.
 The seed and depth options may not be used with rule output.
+.TP
+.B \--definition
+Write the selected system as normalised
+.B .aper
+text instead of PDF.
+The tiling, file, and library selection options still apply.
+The rule, seed, and depth options may not be used with definition output.
+Some legacy built-in systems depend on construction pieces or presentation
+projectors that the version 1 format cannot reproduce exactly.  Such a system
+is rejected instead of being written with changed semantics.
 .TP
 .BR \-h ", " \-\-help
 Print a concise help message and exit.
@@ -179,9 +253,31 @@ Render the two-dimensional Thue-Morse rule:
 .EX
 aper -t thue-morse-2d --rule > thue-morse-rule.pdf
 .EE
+.PP
+Render a system supplied entirely as data:
+.PP
+.EX
+aper --file rules/chair.aper -n 5 > chair.pdf
+aper --file rules/chair.aper --rule > chair-rule.pdf
+.EE
+.PP
+Select a data-defined rule by identifier, then serialise it deterministically:
+.PP
+.EX
+aper --library rules --tiling square-chair --rule > square-chair-rule.pdf
+aper --file rules/chair.aper --definition > chair-copy.aper
+.EE
+.SH FILES
+.TP
+.I ./rules
+First default recursively searched rule-library directory when it exists.
+.TP
+.I PREFIX/share/aper/rules
+Installed fallback rule-library directory.
 .SH EXIT STATUS
 .B aper
-exits zero after writing a complete PDF document and non-zero if its arguments
-are invalid or output fails.
+exits zero after writing a complete PDF document or declarative definition and
+non-zero if its arguments are invalid, a definition cannot be loaded, or
+output fails.
 .SH SEE ALSO
 .BR aper-search (1)

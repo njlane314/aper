@@ -1,8 +1,16 @@
-aper_system	title	record	seed	depth	colour
-p1	P1 pentagon-boat-star	penrose-pentagon-boat-star	pentagon-5	5	flare
-p2	P2 kite and dart	penrose-kite-dart	sun	5	flare
-p3	P3 rhombs	penrose-rhomb	star	5	electric
-ammann-beenker	Ammann-Beenker	ammann-beenker-rhomb-triangle	octagon	4	grove
-pinwheel	Pinwheel	pinwheel	triangle	6	tide
-stampfli	Stampfli 12-fold 1	stampflis-12-fold-1	dodecagon	2	flare
-thue-morse-2d	Thue-Morse 2D	thue-morse-2d	a	6	electric
+aper_system	definition	title	record	seed	depth	colour
+p1	-	P1 pentagon-boat-star	penrose-pentagon-boat-star	pentagon-5	5	flare
+p2	-	P2 kite and dart	penrose-kite-dart	sun	5	flare
+p3	-	P3 rhombs	penrose-rhomb	star	5	electric
+ammann-beenker	-	Ammann-Beenker	ammann-beenker-rhomb-triangle	octagon	4	grove
+pinwheel	-	Pinwheel	pinwheel	triangle	6	tide
+stampfli	-	Stampfli 12-fold 1	stampflis-12-fold-1	dodecagon	2	flare
+thue-morse-2d	rules/thue-morse-2d.aper	Thue-Morse 2D	thue-morse-2d	a	6	electric
+chair	rules/chair.aper	Chair	chair	chair	5	grove
+domino	rules/domino.aper	Domino	domino	domino	5	tide
+pentomino	rules/pentomino.aper	Pentomino	pentomino	tile	4	flare
+period-tripling-2d	rules/period-tripling-2d.aper	Period Tripling 2D	period-tripling-2d	diagonal	4	electric
+square-chair	rules/square-chair.aper	Square Chair	squar-chair	north-west	5	flare
+squiral-block	rules/squiral-block.aper	Squiral Block	squiral-block	left	4	grove
+tromino1	rules/tromino1.aper	Tromino 1	tromino1	l	5	flare
+tromino2	rules/tromino2.aper	Tromino 2	tromino2	l	5	electric

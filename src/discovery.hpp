@@ -82,6 +82,17 @@ class BinarySquareSearch final : public CandidateSource {
                              double tolerance) const override;
 };
 
+class PolyominoRepTileSearch final : public CandidateSource {
+  public:
+    explicit PolyominoRepTileSearch(unsigned cells = 3);
+
+    unsigned cells() const { return cells_; }
+    void enumerate(const Visitor& visit) const override;
+
+  private:
+    unsigned cells_;
+};
+
 struct DiscoveryOptions {
     GeometricValidationOptions geometry{1.0e-9, 5, 2048};
     std::size_t maximum_generated_candidates = 4096;

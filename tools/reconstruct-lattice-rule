@@ -1,0 +1,656 @@
+#!/usr/bin/env python3
+
+"""Recover a simple square-lattice rep-tile substitution from a rule image."""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import math
+import pathlib
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+from collections import Counter
+from collections.abc import Callable, Iterable
+
+
+Pixel = tuple[int, int, int, int]
+Point = tuple[int, int]
+Transform = Callable[[int, int], Point]
+
+
+IDENTIFIER = re.compile(r"^[A-Za-z0-9_.-]+$")
+MINIMUM_OCCUPIED_FILL = 0.72
+MAXIMUM_EMPTY_FILL = 0.28
+MAXIMUM_PITCH_ERROR = 0.16
+MAXIMUM_ALIGNMENT_ERROR = 0.18
+
+
+@dataclasses.dataclass(frozen=True)
+class Component:
+    colour: Pixel
+    pixels: frozenset[Point]
+    box: tuple[int, int, int, int]
+
+
+@dataclasses.dataclass(frozen=True)
+class GridFit:
+    component: Component
+    cells: frozenset[Point]
+    pitch: float
+    score: float
+    minimum_fill: float
+    maximum_empty_fill: float
+
+
+@dataclasses.dataclass(frozen=True)
+class Pose:
+    symmetry: str
+    translation: Point
+
+
+@dataclasses.dataclass(frozen=True)
+class Reconstruction:
+    parent: frozenset[Point]
+    inflation: int
+    children: tuple[Pose, ...]
+
+
+SYMMETRIES: tuple[tuple[str, int, bool, Transform], ...] = (
+    ("identity", 0, False, lambda x, y: (x, y)),
+    ("rotate-90", 90, False, lambda x, y: (-y - 1, x)),
+    ("rotate-180", 180, False, lambda x, y: (-x - 1, -y - 1)),
+    ("rotate-270", -90, False, lambda x, y: (y, -x - 1)),
+    ("reflect", 0, True, lambda x, y: (x, -y - 1)),
+    ("reflect-rotate-90", 90, True, lambda x, y: (y, x)),
+    ("reflect-rotate-180", 180, True, lambda x, y: (-x - 1, y)),
+    ("reflect-rotate-270", -90, True, lambda x, y: (-y - 1, -x - 1)),
+)
+SYMMETRY_OUTPUT = {
+    name: (degrees, reflected) for name, degrees, reflected, _ in SYMMETRIES
+}
+
+
+def load_bmp(path: pathlib.Path) -> tuple[int, int, list[Pixel]]:
+    data = path.read_bytes()
+    if len(data) < 54 or data[:2] != b"BM":
+        raise ValueError(f"not a BMP image: {path}")
+    offset = struct.unpack_from("<I", data, 10)[0]
+    header_size = struct.unpack_from("<I", data, 14)[0]
+    if header_size < 40 or len(data) < 14 + header_size:
+        raise ValueError(f"unsupported BMP header: {path}")
+    width, signed_height = struct.unpack_from("<ii", data, 18)
+    planes, bits = struct.unpack_from("<HH", data, 26)
+    compression = struct.unpack_from("<I", data, 30)[0]
+    if width <= 0 or signed_height == 0:
+        raise ValueError(f"invalid BMP dimensions: {path}")
+    if planes != 1 or bits not in (24, 32) or compression not in (0, 3):
+        raise ValueError(
+            f"unsupported BMP layout ({bits}-bit, compression {compression}): {path}"
+        )
+    height = abs(signed_height)
+    stride = ((width * bits + 31) // 32) * 4
+    required = offset + height * stride
+    if required > len(data):
+        raise ValueError(f"truncated BMP pixel data: {path}")
+
+    pixels: list[Pixel] = []
+    alpha_values: set[int] = set()
+    for y in range(height):
+        source_y = y if signed_height < 0 else height - 1 - y
+        start = offset + source_y * stride
+        for x in range(width):
+            at = start + x * (bits // 8)
+            blue, green, red = data[at : at + 3]
+            alpha = data[at + 3] if bits == 32 else 255
+            alpha_values.add(alpha)
+            pixels.append((red, green, blue, alpha))
+    # BI_RGB permits an unused zero byte where an alpha channel would be.
+    if bits == 32 and compression == 0 and alpha_values == {0}:
+        pixels = [(red, green, blue, 255) for red, green, blue, _ in pixels]
+    return width, height, pixels
+
+
+def conversion_command(source: pathlib.Path, target: pathlib.Path) -> list[str]:
+    magick = shutil.which("magick")
+    if magick:
+        return [magick, f"{source}[0]", f"BMP4:{target}"]
+    convert = shutil.which("convert")
+    if convert:
+        return [convert, f"{source}[0]", f"BMP4:{target}"]
+    sips = shutil.which("sips")
+    if sips:
+        return [sips, "-s", "format", "bmp", str(source), "--out", str(target)]
+    raise RuntimeError(
+        "non-BMP input needs ImageMagick (`magick` or `convert`) or macOS `sips`"
+    )
+
+
+def read_image(path: pathlib.Path) -> tuple[int, int, list[Pixel]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"image does not exist: {path}")
+    with path.open("rb") as source:
+        signature = source.read(2)
+    if signature == b"BM":
+        return load_bmp(path)
+    with tempfile.TemporaryDirectory(prefix="aper-reconstruct-") as directory:
+        target = pathlib.Path(directory) / "source.bmp"
+        command = conversion_command(path, target)
+        completed = subprocess.run(
+            command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        if completed.returncode != 0:
+            diagnostic = completed.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(
+                f"image conversion failed with {pathlib.Path(command[0]).name}: "
+                f"{diagnostic or 'no diagnostic'}"
+            )
+        return load_bmp(target)
+
+
+def bounding_box(points: Iterable[Point]) -> tuple[int, int, int, int]:
+    points = tuple(points)
+    if not points:
+        raise ValueError("cannot bound an empty point set")
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+def extract_components(
+    width: int, height: int, pixels: list[Pixel], minimum_size: int
+) -> list[Component]:
+    corners = (
+        pixels[0],
+        pixels[width - 1],
+        pixels[(height - 1) * width],
+        pixels[-1],
+    )
+    background = Counter(corners).most_common(1)[0][0]
+    unseen = bytearray(
+        pixel != background and pixel[3] >= 250 for pixel in pixels
+    )
+    answer: list[Component] = []
+    for start, selected in enumerate(unseen):
+        if not selected:
+            continue
+        colour = pixels[start]
+        unseen[start] = 0
+        todo = [start]
+        points: set[Point] = set()
+        while todo:
+            current = todo.pop()
+            x, y = current % width, current // width
+            points.add((x, y))
+            for neighbour in (
+                current - 1 if x else -1,
+                current + 1 if x + 1 < width else -1,
+                current - width if y else -1,
+                current + width if y + 1 < height else -1,
+            ):
+                if neighbour >= 0 and unseen[neighbour] and pixels[neighbour] == colour:
+                    unseen[neighbour] = 0
+                    todo.append(neighbour)
+        if len(points) >= minimum_size:
+            frozen = frozenset(points)
+            answer.append(Component(colour, frozen, bounding_box(frozen)))
+    return sorted(answer, key=lambda item: (item.box, item.colour, len(item.pixels)))
+
+
+def connected(cells: frozenset[Point]) -> bool:
+    if not cells:
+        return False
+    found = {next(iter(cells))}
+    todo = list(found)
+    while todo:
+        x, y = todo.pop()
+        for neighbour in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+            if neighbour in cells and neighbour not in found:
+                found.add(neighbour)
+                todo.append(neighbour)
+    return len(found) == len(cells)
+
+
+def tight(cells: frozenset[Point], columns: int, rows: int) -> bool:
+    return (
+        min(x for x, _ in cells) == 0
+        and min(y for _, y in cells) == 0
+        and max(x for x, _ in cells) == columns - 1
+        and max(y for _, y in cells) == rows - 1
+    )
+
+
+def fit_component(
+    component: Component, cell_count: int, maximum_grid: int
+) -> GridFit | None:
+    left, top, right, bottom = component.box
+    width, height = right - left, bottom - top
+    candidates: list[GridFit] = []
+    for columns in range(1, maximum_grid + 1):
+        for rows in range(1, maximum_grid + 1):
+            if columns * rows < cell_count:
+                continue
+            pitch_x, pitch_y = width / columns, height / rows
+            pitch = (pitch_x + pitch_y) / 2.0
+            if pitch < 2.0:
+                continue
+            pitch_error = abs(pitch_x - pitch_y) / pitch
+            if pitch_error > MAXIMUM_PITCH_ERROR:
+                continue
+            fractions: dict[Point, float] = {}
+            cells: set[Point] = set()
+            for row in range(rows):
+                y0 = round(top + row * height / rows)
+                y1 = round(top + (row + 1) * height / rows)
+                for column in range(columns):
+                    x0 = round(left + column * width / columns)
+                    x1 = round(left + (column + 1) * width / columns)
+                    area = (x1 - x0) * (y1 - y0)
+                    if area == 0:
+                        continue
+                    occupied = sum(
+                        (x, y) in component.pixels
+                        for y in range(y0, y1)
+                        for x in range(x0, x1)
+                    )
+                    fraction = occupied / area
+                    fractions[(column, row)] = fraction
+                    if fraction > 0.5:
+                        cells.add((column, row))
+            frozen = frozenset(cells)
+            if (
+                len(frozen) != cell_count
+                or not connected(frozen)
+                or not tight(frozen, columns, rows)
+            ):
+                continue
+            minimum_fill = min(fractions[cell] for cell in frozen)
+            maximum_empty_fill = max(
+                (fraction for cell, fraction in fractions.items() if cell not in frozen),
+                default=0.0,
+            )
+            if (
+                minimum_fill < MINIMUM_OCCUPIED_FILL
+                or maximum_empty_fill > MAXIMUM_EMPTY_FILL
+            ):
+                continue
+            estimated_cells = len(component.pixels) / (pitch * pitch)
+            area_error = abs(estimated_cells - cell_count) / cell_count
+            score = pitch_error + area_error + (1.0 - minimum_fill) / 10.0
+            candidates.append(
+                GridFit(
+                    component,
+                    frozen,
+                    pitch,
+                    score,
+                    minimum_fill,
+                    maximum_empty_fill,
+                )
+            )
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda fit: (fit.score, sorted(fit.cells), fit.pitch, fit.component.box)
+    )
+    return candidates[0]
+
+
+def normalise(cells: Iterable[Point]) -> frozenset[Point]:
+    frozen = frozenset(cells)
+    if not frozen:
+        raise ValueError("cannot normalise an empty cell set")
+    minimum_x = min(x for x, _ in frozen)
+    minimum_y = min(y for _, y in frozen)
+    return frozenset((x - minimum_x, y - minimum_y) for x, y in frozen)
+
+
+def transformed(cells: Iterable[Point], transform: Transform) -> frozenset[Point]:
+    return frozenset(transform(x, y) for x, y in cells)
+
+
+def canonical_shape(cells: Iterable[Point]) -> tuple[Point, ...]:
+    return min(
+        tuple(sorted(normalise(transformed(cells, transform))))
+        for _, _, _, transform in SYMMETRIES
+    )
+
+
+def matching_poses(source: Iterable[Point], target: Iterable[Point]) -> list[Pose]:
+    source = frozenset(source)
+    target = frozenset(target)
+    answer: list[Pose] = []
+    for name, _, _, transform in SYMMETRIES:
+        changed = transformed(source, transform)
+        translation = (
+            min(x for x, _ in target) - min(x for x, _ in changed),
+            min(y for _, y in target) - min(y for _, y in changed),
+        )
+        moved = frozenset(
+            (x + translation[0], y + translation[1]) for x, y in changed
+        )
+        if moved == target:
+            answer.append(Pose(name, translation))
+    return answer
+
+
+def inflate(cells: Iterable[Point], factor: int) -> frozenset[Point]:
+    return frozenset(
+        (factor * x + dx, factor * y + dy)
+        for x, y in cells
+        for dx in range(factor)
+        for dy in range(factor)
+    )
+
+
+def pose_key(pose: Pose) -> tuple[int, int, int, bool]:
+    degrees, reflected = SYMMETRY_OUTPUT[pose.symmetry]
+    return pose.translation[0], pose.translation[1], degrees, reflected
+
+
+def infer_reconstruction(fits: list[GridFit]) -> Reconstruction:
+    answers: set[Reconstruction] = set()
+    for parent in fits:
+        shape = canonical_shape(parent.cells)
+        possible_children = [
+            child
+            for child in fits
+            if child is not parent
+            and canonical_shape(child.cells) == shape
+            and abs(child.pitch - parent.pitch) / parent.pitch <= MAXIMUM_PITCH_ERROR
+            and parent.component.box[2] + parent.pitch / 2.0
+            < child.component.box[0]
+        ]
+        child_count = len(possible_children)
+        inflation = math.isqrt(child_count)
+        if inflation < 2 or inflation * inflation != child_count:
+            continue
+        pitch = sum(child.pitch for child in possible_children) / child_count
+        if any(
+            abs(child.pitch - pitch) / pitch > MAXIMUM_PITCH_ERROR
+            for child in possible_children
+        ):
+            continue
+        patch_left = min(child.component.box[0] for child in possible_children)
+        patch_top = min(child.component.box[1] for child in possible_children)
+        child_sets: list[frozenset[Point]] = []
+        aligned = True
+        for child in possible_children:
+            raw_x = (child.component.box[0] - patch_left) / pitch
+            raw_y = (child.component.box[1] - patch_top) / pitch
+            offset = round(raw_x), round(raw_y)
+            if (
+                abs(raw_x - offset[0]) > MAXIMUM_ALIGNMENT_ERROR
+                or abs(raw_y - offset[1]) > MAXIMUM_ALIGNMENT_ERROR
+            ):
+                aligned = False
+                break
+            child_sets.append(
+                frozenset(
+                    (x + offset[0], y + offset[1]) for x, y in child.cells
+                )
+            )
+        if not aligned:
+            continue
+        union = frozenset().union(*child_sets)
+        if len(union) != child_count * len(parent.cells):
+            continue
+        origin_x = min(x for x, _ in union)
+        origin_y = min(y for _, y in union)
+        union = normalise(union)
+        child_sets = [
+            frozenset((x - origin_x, y - origin_y) for x, y in child)
+            for child in child_sets
+        ]
+
+        orientations: list[Reconstruction] = []
+        for _, _, _, transform in SYMMETRIES:
+            oriented_parent = normalise(transformed(parent.cells, transform))
+            if inflate(oriented_parent, inflation) != union:
+                continue
+            poses: list[Pose] = []
+            for child in child_sets:
+                matches = matching_poses(oriented_parent, child)
+                if not matches:
+                    break
+                poses.append(min(matches, key=pose_key))
+            else:
+                orientations.append(
+                    Reconstruction(
+                        oriented_parent,
+                        inflation,
+                        tuple(sorted(poses, key=pose_key)),
+                    )
+                )
+        if orientations:
+            answers.add(
+                min(
+                    orientations,
+                    key=lambda answer: (
+                        sorted(answer.parent),
+                        tuple(pose_key(pose) for pose in answer.children),
+                    ),
+                )
+            )
+    if not answers:
+        raise ValueError(
+            "no exact square-lattice rep-tile was found; the diagram must show one "
+            "parent at left and one complete replacement patch at right"
+        )
+    canonical = {
+        (
+            tuple(sorted(answer.parent)),
+            answer.inflation,
+            tuple(pose_key(pose) for pose in answer.children),
+        ): answer
+        for answer in answers
+    }
+    if len(canonical) != 1:
+        raise ValueError("the diagram admits more than one reconstruction")
+    return next(iter(canonical.values()))
+
+
+def boundary(cells: Iterable[Point]) -> list[Point]:
+    edges: set[tuple[Point, Point]] = set()
+    for x, y in cells:
+        for edge in (
+            ((x, y), (x + 1, y)),
+            ((x + 1, y), (x + 1, y + 1)),
+            ((x + 1, y + 1), (x, y + 1)),
+            ((x, y + 1), (x, y)),
+        ):
+            reverse = edge[1], edge[0]
+            if reverse in edges:
+                edges.remove(reverse)
+            else:
+                edges.add(edge)
+    outgoing: dict[Point, Point] = {}
+    incoming: dict[Point, Point] = {}
+    for start, end in edges:
+        if start in outgoing or end in incoming:
+            raise ValueError(
+                "the recovered cells do not have a single simple polygon boundary"
+            )
+        outgoing[start] = end
+        incoming[end] = start
+    start = min(outgoing)
+    polygon = [start]
+    current = start
+    used: set[tuple[Point, Point]] = set()
+    while True:
+        if current not in outgoing:
+            raise ValueError("the recovered polygon boundary is open")
+        edge = current, outgoing[current]
+        if edge in used:
+            raise ValueError("the recovered polygon boundary repeats an edge")
+        used.add(edge)
+        current = edge[1]
+        if current == start:
+            break
+        polygon.append(current)
+    if len(used) != len(edges):
+        raise ValueError("the recovered cells contain a hole or disjoint boundary")
+
+    simplified: list[Point] = []
+    for index, point in enumerate(polygon):
+        previous = polygon[index - 1]
+        following = polygon[(index + 1) % len(polygon)]
+        first = point[0] - previous[0], point[1] - previous[1]
+        second = following[0] - point[0], following[1] - point[1]
+        if first[0] * second[1] != first[1] * second[0]:
+            simplified.append(point)
+    if len(simplified) < 3:
+        raise ValueError("the recovered polygon has fewer than three corners")
+    start_index = min(range(len(simplified)), key=lambda index: simplified[index])
+    return simplified[start_index:] + simplified[:start_index]
+
+
+def quoted(text: str) -> str:
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def render_definition(arguments: argparse.Namespace, answer: Reconstruction) -> str:
+    polygon = boundary(answer.parent)
+    lines = [
+        "aper 1",
+        f"id {arguments.identifier}",
+        f"name {quoted(arguments.name or arguments.identifier)}",
+        f"inflation {answer.inflation}",
+        "depths 1 4 7",
+        f"default-seed {arguments.tile}",
+        "deduplicate false",
+    ]
+    if arguments.source:
+        lines.extend(
+            [
+                "",
+                "source " + " ".join(quoted(value) for value in arguments.source),
+            ]
+        )
+    coordinates = " ".join(f"{x} {y}" for x, y in polygon)
+    lines.extend(
+        [
+            "",
+            f"tile {arguments.tile} {arguments.fill}",
+            f"polygon {coordinates}",
+            "end",
+            "",
+            f"rule {arguments.tile}",
+        ]
+    )
+    for pose in answer.children:
+        degrees, reflected = SYMMETRY_OUTPUT[pose.symmetry]
+        handedness = "reflected" if reflected else "normal"
+        lines.append(
+            f"child {arguments.tile} {pose.translation[0]} {pose.translation[1]} "
+            f"{degrees} {handedness}"
+        )
+    lines.extend(
+        [
+            "end",
+            "",
+            f"seed {arguments.tile} 1",
+            f"place {arguments.tile} 0 0 1 0 normal",
+            "end",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def positive_integer(text: str) -> int:
+    try:
+        value = int(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be a positive integer") from error
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return value
+
+
+def fill_index(text: str) -> int:
+    value = positive_integer(text) if text != "0" else 0
+    if value > 15:
+        raise argparse.ArgumentTypeError("must be an integer from 0 to 15")
+    return value
+
+
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="reconstruct-lattice-rule",
+        description=(
+            "recover a one-prototile square-lattice substitution from a flat "
+            "parent-to-patch rule image and write an aper definition"
+        ),
+        epilog=(
+            "BMP is read directly; other raster formats require ImageMagick or "
+            "macOS sips. The drawing must use flat fills and show one parent at "
+            "left and its complete replacement patch at right."
+        ),
+    )
+    parser.add_argument("image", type=pathlib.Path, help="rule-diagram raster")
+    parser.add_argument("--id", dest="identifier", required=True, help="system id")
+    parser.add_argument(
+        "--cells",
+        type=positive_integer,
+        required=True,
+        help="number of unit-square cells in the prototile",
+    )
+    parser.add_argument("--name", help="display name (default: system id)")
+    parser.add_argument("--tile", default="tile", help="tile id (default: tile)")
+    parser.add_argument(
+        "--fill", type=fill_index, default=0, help="fill index 0--15 (default: 0)"
+    )
+    parser.add_argument(
+        "--max-grid",
+        type=positive_integer,
+        default=12,
+        help="maximum inferred rows or columns (default: 12)",
+    )
+    parser.add_argument(
+        "--source",
+        nargs=5,
+        metavar=("COLLECTION", "RECORD", "URL", "CITATION", "LICENCE"),
+        help="optional aper source record",
+    )
+    arguments = parser.parse_args()
+    for value, role in (
+        (arguments.identifier, "system id"),
+        (arguments.tile, "tile id"),
+    ):
+        if not IDENTIFIER.fullmatch(value):
+            parser.error(f"{role} is not a valid aper identifier")
+    if arguments.cells > arguments.max_grid * arguments.max_grid:
+        parser.error("--cells exceeds the area allowed by --max-grid")
+    return arguments
+
+
+def main() -> int:
+    arguments = parse_arguments()
+    width, height, pixels = read_image(arguments.image)
+    minimum_component_size = max(16, width * height // 5000)
+    components = extract_components(width, height, pixels, minimum_component_size)
+    fits = [
+        fit
+        for component in components
+        if (fit := fit_component(component, arguments.cells, arguments.max_grid))
+        is not None
+    ]
+    if not fits:
+        raise ValueError(
+            "no flat-fill component could be fitted to the requested cell count"
+        )
+    answer = infer_reconstruction(fits)
+    sys.stdout.write(render_definition(arguments, answer))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"reconstruct-lattice-rule: {error}", file=sys.stderr)
+        raise SystemExit(1)

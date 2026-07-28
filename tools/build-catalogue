@@ -10,6 +10,7 @@ import hashlib
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -37,9 +38,19 @@ REFERENCE_FIELDS = [
     "rule_media",
     "change",
 ]
-SYSTEM_FIELDS = ["aper_system", "title", "record", "seed", "depth", "colour"]
+SYSTEM_FIELDS = [
+    "aper_system",
+    "definition",
+    "title",
+    "record",
+    "seed",
+    "depth",
+    "colour",
+]
 BANK_FIELDS = ["slug", "title", "url", "tags", "aper_system"]
 SEARCH_FIELDS = ["index", "system", "exact_bank_match"]
+SEARCH_SPACE = "polyomino"
+SEARCH_CELLS = "3"
 SAFE_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*\Z")
 
 
@@ -55,6 +66,7 @@ class BankRecord:
 @dataclass(frozen=True)
 class Presentation:
     aper_system: str
+    definition: str
     title: str
     record: str
     seed: str
@@ -286,9 +298,47 @@ def read_systems(path: pathlib.Path) -> tuple[Presentation, ...]:
             raise ValueError(f"invalid depth for {row['aper_system']}") from error
         if depth < 1:
             raise ValueError(f"invalid depth for {row['aper_system']}")
+        definition = "" if row["definition"] == "-" else row["definition"]
+        if definition:
+            definition_path = pathlib.Path(definition)
+            if definition_path.is_absolute() or ".." in definition_path.parts:
+                raise ValueError(
+                    f"unsafe definition path for {row['aper_system']}: {definition}"
+                )
+            if definition_path.suffix != ".aper":
+                raise ValueError(
+                    f"definition for {row['aper_system']} is not an .aper file"
+                )
+            absolute_definition = REPOSITORY / definition_path
+            if not absolute_definition.is_file():
+                raise FileNotFoundError(
+                    f"definition for {row['aper_system']} does not exist: {definition}"
+                )
+            definition_lines = absolute_definition.read_text(encoding="utf-8").splitlines()
+            identifiers = [
+                fields[1]
+                for line in definition_lines
+                if (fields := shlex.split(line)) and fields[0] == "id" and len(fields) == 2
+            ]
+            if identifiers != [row["aper_system"]]:
+                raise ValueError(
+                    f"definition {definition} does not declare id {row['aper_system']}"
+                )
+            source_records = [
+                fields[2]
+                for line in definition_lines
+                if (fields := shlex.split(line))
+                and fields[0] == "source"
+                and len(fields) == 6
+            ]
+            if row["record"] not in source_records:
+                raise ValueError(
+                    f"definition {definition} does not cite record {row['record']}"
+                )
         systems.append(
             Presentation(
                 row["aper_system"],
+                definition,
                 row["title"],
                 row["record"],
                 row["seed"],
@@ -383,7 +433,14 @@ def validate_system_mappings(
 
 def read_candidates(aper_search: pathlib.Path) -> SearchListing:
     output = run_text(
-        [str(aper_search), "--space", "binary-square", "--list-candidates"],
+        [
+            str(aper_search),
+            "--space",
+            SEARCH_SPACE,
+            "--cells",
+            SEARCH_CELLS,
+            "--list-candidates",
+        ],
         REPOSITORY,
     )
     statistics: dict[str, str] = {}
@@ -392,12 +449,13 @@ def read_candidates(aper_search: pathlib.Path) -> SearchListing:
         if line.startswith("#"):
             fields = line[1:].strip().split("\t")
             if len(fields) != 2:
-                raise ValueError("malformed binary-square statistic")
+                raise ValueError("malformed polyomino-search statistic")
             statistics[fields[0]] = fields[1]
         elif line:
             table.append(line)
     required_statistics = {
         "search-space",
+        "cells",
         "generated",
         "structurally-valid",
         "algebraically-valid",
@@ -407,20 +465,22 @@ def read_candidates(aper_search: pathlib.Path) -> SearchListing:
         "encoded-bank",
     }
     if set(statistics) != required_statistics:
-        raise ValueError("binary-square listing returned unexpected statistics")
-    if statistics["search-space"] != "binary-square":
+        raise ValueError("polyomino listing returned unexpected statistics")
+    if statistics["search-space"] != SEARCH_SPACE:
         raise ValueError("aper-search returned the wrong search space")
+    if statistics["cells"] != SEARCH_CELLS:
+        raise ValueError("aper-search returned the wrong polyomino cell count")
     reader = csv.DictReader(table, delimiter="\t")
     if reader.fieldnames != SEARCH_FIELDS:
-        raise ValueError("binary-square listing returned an unexpected header")
+        raise ValueError("polyomino listing returned an unexpected header")
     candidates: list[Candidate] = []
     for row in reader:
         if None in row:
-            raise ValueError("binary-square listing contains a malformed row")
+            raise ValueError("polyomino listing contains a malformed row")
         try:
             index = int(row["index"])
         except ValueError as error:
-            raise ValueError("binary-square candidate index is not an integer") from error
+            raise ValueError("polyomino candidate index is not an integer") from error
         matches = (
             ()
             if row["exact_bank_match"] == "-"
@@ -428,11 +488,11 @@ def read_candidates(aper_search: pathlib.Path) -> SearchListing:
         )
         candidates.append(Candidate(index, row["system"], matches))
     if [candidate.index for candidate in candidates] != list(range(len(candidates))):
-        raise ValueError("binary-square candidate indices are not contiguous")
+        raise ValueError("polyomino candidate indices are not contiguous")
     if int(statistics["unique"]) != len(candidates):
-        raise ValueError("binary-square unique count disagrees with its rows")
+        raise ValueError("polyomino unique count disagrees with its rows")
     if not candidates:
-        raise ValueError("binary-square search returned no candidates")
+        raise ValueError("polyomino search returned no candidates")
     return SearchListing(statistics, tuple(candidates))
 
 
@@ -507,9 +567,13 @@ def copy_or_convert_reference(
         descriptor, name = tempfile.mkstemp(dir=target.parent, suffix=target.suffix)
         os.close(descriptor)
         temporary = pathlib.Path(name)
+        temporary.unlink()
         try:
-            shutil.copyfile(source, temporary)
-            os.chmod(temporary, 0o644)
+            try:
+                os.link(source, temporary)
+            except OSError:
+                shutil.copyfile(source, temporary)
+                os.chmod(temporary, 0o644)
             os.replace(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
@@ -596,10 +660,19 @@ def native_artwork(
     aper: pathlib.Path,
     artwork_directory: pathlib.Path,
 ) -> tuple[Artwork, Artwork]:
+    selector = (
+        ["--file", str(REPOSITORY / presentation.definition)]
+        if presentation.definition
+        else ["--tiling", presentation.aper_system]
+    )
+    display_selector = (
+        ["--file", presentation.definition]
+        if presentation.definition
+        else ["--tiling", presentation.aper_system]
+    )
     patch_arguments = [
         str(aper),
-        "-t",
-        presentation.aper_system,
+        *selector,
         "-s",
         presentation.seed,
         "-c",
@@ -609,8 +682,7 @@ def native_artwork(
     ]
     rule_arguments = [
         str(aper),
-        "-t",
-        presentation.aper_system,
+        *selector,
         "--rule",
         "-c",
         presentation.colour,
@@ -619,8 +691,23 @@ def native_artwork(
     rule = artwork_directory / f"native-{presentation.aper_system}-rule.pdf"
     render_pdf(patch_arguments, patch, REPOSITORY)
     render_pdf(rule_arguments, rule, REPOSITORY)
-    patch_display = ["./aper", *patch_arguments[1:]]
-    rule_display = ["./aper", *rule_arguments[1:]]
+    patch_display = [
+        "./aper",
+        *display_selector,
+        "--seed",
+        presentation.seed,
+        "--colour",
+        presentation.colour,
+        "--depth",
+        str(presentation.depth),
+    ]
+    rule_display = [
+        "./aper",
+        *display_selector,
+        "--rule",
+        "--colour",
+        presentation.colour,
+    ]
     return (
         Artwork(patch, f"native vector PDF; command: {command_text(patch_display)}", ""),
         Artwork(rule, f"native vector PDF; command: {command_text(rule_display)}", ""),
@@ -635,7 +722,9 @@ def candidate_artwork(
     patch_arguments = [
         str(aper_search),
         "--space",
-        "binary-square",
+        SEARCH_SPACE,
+        "--cells",
+        SEARCH_CELLS,
         "--candidate",
         str(candidate.index),
         "-n",
@@ -644,7 +733,9 @@ def candidate_artwork(
     rule_arguments = [
         str(aper_search),
         "--space",
-        "binary-square",
+        SEARCH_SPACE,
+        "--cells",
+        SEARCH_CELLS,
         "--candidate",
         str(candidate.index),
         "--rule",
@@ -656,8 +747,8 @@ def candidate_artwork(
     patch_display = ["./aper-search", *patch_arguments[1:]]
     rule_display = ["./aper-search", *rule_arguments[1:]]
     return (
-        Artwork(patch, f"native search PDF; command: {command_text(patch_display)}", ""),
-        Artwork(rule, f"native search PDF; command: {command_text(rule_display)}", ""),
+        Artwork(patch, f"local search PDF; command: {command_text(patch_display)}", ""),
+        Artwork(rule, f"local search PDF; command: {command_text(rule_display)}", ""),
     )
 
 
@@ -750,11 +841,18 @@ def make_search_comparison(listing: Optional[SearchListing], smoke: bool) -> str
         r"\section*{Search comparison}",
         r"\markboth{Search comparison}{Search comparison}",
         (
-            f"The binary-square run generated {tex(stats['generated'])} labelled rules; "
+            "The exact-cover run enumerated every free connected triomino and "
+            "dissected each twofold inflation into four rotated or reflected copies. "
+            f"It generated {tex(stats['generated'])} geometric rules; "
             f"{tex(stats['structurally-valid'])} were structurally valid, "
             f"{tex(stats['algebraically-valid'])} algebraically valid, and "
             f"{tex(stats['geometrically-valid'])} geometrically valid. "
             f"Canonicalisation retained {tex(stats['unique'])} unique candidates. "
+            "The L-triomino survivor is a rediscovery of the classical Chair "
+            "rep-tile construction; the straight I-triomino is a periodic control, "
+            "so neither is presented as a novel tiling. "
+            "This geometric family identification is independent of the stricter "
+            "exact-rule comparison. "
             "The final column reports exact canonical equality only against the "
             f"{tex(stats['encoded-bank'])} encoded bank systems."
         ),
@@ -802,11 +900,14 @@ def make_plates(
         presentation = by_record.get(record.slug)
         if presentation is not None:
             patch, rule = native_artwork(presentation, aper, artwork_directory)
-            status = f"native aper encoding · bank record {number} of {len(records)}"
+            status = (
+                "locally encoded as executable geometry in aper · "
+                f"bank record {number} of {len(records)}"
+            )
             status_colour = "apernative"
             changes = (
                 "Local vector rendering; no Encyclopedia artwork reproduced. "
-                "Metadata whitespace normalised and composed for this page."
+                "Catalogue metadata transformations are stated in the method section."
             )
         else:
             reference = references.get(record.slug)
@@ -877,13 +978,27 @@ def make_plates(
                 plate_tex(
                     f"candidate-{candidate.index}",
                     f"Search candidate {candidate.index}: {candidate.system}",
-                    f"bounded-search candidate · {exact}",
-                    "apernative",
-                    r"local \texttt{aper-search}; space \texttt{binary-square}",
-                    r"binary-square, canonical candidate",
                     (
-                        "Locally generated after bounded validation and canonicalisation. "
-                        "Candidate status is not a novelty, nonperiodicity, or aperiodicity claim."
+                        "exact-cover triomino · Chair geometry rediscovered · "
+                        f"{exact}"
+                        if candidate.system == "polyomino-chair"
+                        else f"exact-cover triomino control · {exact}"
+                    ),
+                    "apernative",
+                    (
+                        r"local \texttt{aper-search}; space \texttt{polyomino}; "
+                        r"cells 3"
+                    ),
+                    r"polyomino, triomino, exact cover, rep-tile",
+                    (
+                        "Locally generated by exact cover, then validated and "
+                        "canonicalised. This independently rediscovers the encoded "
+                        "Chair rule; it is not a novelty or aperiodicity claim."
+                        if candidate.system == "polyomino-chair"
+                        else
+                        "Locally generated by exact cover, then validated and "
+                        "canonicalised. The straight triomino is a periodic control, "
+                        "not a novelty or aperiodicity claim."
                     ),
                     patch,
                     rule,

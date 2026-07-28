@@ -1,0 +1,24 @@
+aper 1
+id domino
+name "Domino"
+alias table
+inflation 2
+depths 1 5 8
+default-seed domino
+deduplicate false
+source "Tilings Encyclopedia" "domino" "https://tilings.math.uni-bielefeld.de/substitution/domino/" "D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia" "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+
+tile domino 15
+polygon 0 0  1 0  1 2  0 2
+end
+
+rule domino
+child domino 2 0 90 normal
+child domino 0 1 0 normal
+child domino 1 1 0 normal
+child domino 2 3 90 normal
+end
+
+seed domino 1
+place domino 0 0 1 0 normal
+end

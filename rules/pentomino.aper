@@ -1,0 +1,24 @@
+aper 1
+id pentomino
+name "Pentomino"
+alias p-pentomino
+inflation 2
+depths 1 4 7
+default-seed tile
+deduplicate false
+source "Tilings Encyclopedia" "pentomino" "https://tilings.math.uni-bielefeld.de/substitution/pentomino/" "D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia" "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+
+tile tile 0
+polygon 0 0  1 0  1 1  2 1  2 3  0 3
+end
+
+rule tile
+child tile 0 3 0 normal
+child tile 0 3 0 reflected
+child tile 4 2 90 normal
+child tile 4 3 180 reflected
+end
+
+seed tile 1
+place tile 0 0 1 0 normal
+end

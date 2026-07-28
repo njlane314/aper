@@ -2,7 +2,7 @@
 # source: https://tilings.math.uni-bielefeld.de/substitution/
 # attribution: D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia
 # licence: https://creativecommons.org/licenses/by-nc-sa/2.0/
-# changes: whitespace normalised, records sorted by slug, aper ids added
+# changes: whitespace normalised, records sorted by slug, page URLs constructed, aper ids added
 # aper_system: - denotes a reference-only record
 # source-last-modified: Fri, 17 Jul 2026 11:55:54 GMT
 # source-etag: "68d81-656cd3d2ca8b1"
@@ -34,7 +34,7 @@ central-fibonacci	Central Fibonacci	https://tilings.math.uni-bielefeld.de/substi
 cesis-substitution	Cesi's Substitution	https://tilings.math.uni-bielefeld.de/substitution/cesis-substitution/	Self Similar Substitution|Infinite Rotations	-
 chaims-cubic-pv	Chaim's Cubic PV	https://tilings.math.uni-bielefeld.de/substitution/chaims-cubic-pv/	Finite Rotations|Euclidean Windowed Tiling|Polytopal Tiles|Self Similar Substitution	-
 chaims-square-tiling	Chaim's Square Tiling	https://tilings.math.uni-bielefeld.de/substitution/chaims-square-tiling/		-
-chair	Chair	https://tilings.math.uni-bielefeld.de/substitution/chair/	Finite Rotations|P Adic Windowed Tiling|Polytopal Tiles|Rep Tiles|Self Similar Substitution|Mld Class Chair	-
+chair	Chair	https://tilings.math.uni-bielefeld.de/substitution/chair/	Finite Rotations|P Adic Windowed Tiling|Polytopal Tiles|Rep Tiles|Self Similar Substitution|Mld Class Chair	chair
 chair-variant	Chair variant (9 tiles)	https://tilings.math.uni-bielefeld.de/substitution/chair-variant/	Finite Rotations|Polytopal Tiles|Self Similar Substitution	-
 chord-quadrangle-3-3	Chord Quadrangle 3-3	https://tilings.math.uni-bielefeld.de/substitution/chord-quadrangle-3-3/		-
 chord-quadrangle-4-3	Chord Quadrangle 4-3	https://tilings.math.uni-bielefeld.de/substitution/chord-quadrangle-4-3/		-
@@ -64,7 +64,7 @@ deltoid-7-3-2	Nischke-Danzer-Deltoid 7-fold-3-2	https://tilings.math.uni-bielefe
 diamond	Diamond	https://tilings.math.uni-bielefeld.de/substitution/diamond/		-
 diamond-triangle	Diamond Triangle	https://tilings.math.uni-bielefeld.de/substitution/diamond-triangle/		-
 dite-and-kart-2d	Dite and Kart 2D	https://tilings.math.uni-bielefeld.de/substitution/dite-and-kart-2d/		-
-domino	Domino	https://tilings.math.uni-bielefeld.de/substitution/domino/	Polyomio Tiling|Finite Rotations|Polyomio Tilings|Rep Tiles|Self Similar Substitution	-
+domino	Domino	https://tilings.math.uni-bielefeld.de/substitution/domino/	Polyomio Tiling|Finite Rotations|Polyomio Tilings|Rep Tiles|Self Similar Substitution	domino
 domino-variant	Domino variant	https://tilings.math.uni-bielefeld.de/substitution/domino-variant/	Finite Rotations|P Adic Windowed Tiling|Polytopal Tiles|Parallelogram Tiles|Polyomio Tiling|Rep Tiles|Self Similar Substitution	-
 domino-variant-9-tiles	Domino variant (9 tiles)	https://tilings.math.uni-bielefeld.de/substitution/domino-variant-9-tiles/	Finite Rotations|Polytopal Tiles|Polyomio Tiling|Rep Tiles|Self Similar Substitution	-
 double-angle-plastic	Double Angle Plastic	https://tilings.math.uni-bielefeld.de/substitution/double-angle-plastic/	Self Similar Substitution|Plastic Number|Infinite Rotations	-
@@ -160,9 +160,9 @@ penrose_fractal	Fractal Penrose Dragon	https://tilings.math.uni-bielefeld.de/sub
 pentiamond-ac-factor-2	Pentiamond AC factor 2	https://tilings.math.uni-bielefeld.de/substitution/pentiamond-ac-factor-2/		-
 pentiamond-ac-factor-3	Pentiamond AC factor 3	https://tilings.math.uni-bielefeld.de/substitution/pentiamond-ac-factor-3/		-
 pentiamond-ad-factor-2	Pentiamond AD factor 2	https://tilings.math.uni-bielefeld.de/substitution/pentiamond-ad-factor-2/		-
-pentomino	Pentomino	https://tilings.math.uni-bielefeld.de/substitution/pentomino/	Finite Rotations|Polytopal Tiles|Polyomio Tilings|Rep Tiles|Self Similar Substitution	-
+pentomino	Pentomino	https://tilings.math.uni-bielefeld.de/substitution/pentomino/	Finite Rotations|Polytopal Tiles|Polyomio Tilings|Rep Tiles|Self Similar Substitution	pentomino
 period-doubling	Period Doubling	https://tilings.math.uni-bielefeld.de/substitution/period-doubling/	P Adic Windowed Tiling|One Dimensional|Rep Tiles|Self Similar Substitution	-
-period-tripling-2d	Period Tripling 2D	https://tilings.math.uni-bielefeld.de/substitution/period-tripling-2d/		-
+period-tripling-2d	Period Tripling 2D	https://tilings.math.uni-bielefeld.de/substitution/period-tripling-2d/		period-tripling-2d
 pinwheel	Pinwheel	https://tilings.math.uni-bielefeld.de/substitution/pinwheel/	With Decoration|Finite Local Complexity|Saduns Generalised Pinwheels|Polytopal Tiles|Self Similar Substitution|Mld Class Pinwheel|Infinite Rotations	pinwheel
 pinwheel-1--2	Pinwheel-1/2	https://tilings.math.uni-bielefeld.de/substitution/pinwheel-1--2/	Infinite Rotations|Infinite Local Complexity|Saduns Generalised Pinwheels|Polytopal Tiles|Self Similar Substitution	-
 pinwheel-1-3	Pinwheel-1-3	https://tilings.math.uni-bielefeld.de/substitution/pinwheel-1-3/		-
@@ -216,13 +216,13 @@ spectre	Spectre	https://tilings.math.uni-bielefeld.de/substitution/spectre/	Aper
 sphinx	Sphinx	https://tilings.math.uni-bielefeld.de/substitution/sphinx/	With Decoration|Finite Rotations|P Adic Windowed Tiling|Polytopal Tiles|Rep Tiles|Self Similar Substitution	-
 sphinx-9	Sphinx-9	https://tilings.math.uni-bielefeld.de/substitution/sphinx-9/	Finite Rotations|P Adic Windowed Tiling|Polytopal Tiles|Rep Tiles|Self Similar Substitution	-
 sqrt6-triangles	Sqrt6-triangles	https://tilings.math.uni-bielefeld.de/substitution/sqrt6-triangles/	Infinite Rotations|Finite Local Complexity|Polytopal Tiles|Self Similar Substitution	-
-squar-chair	Square Chair	https://tilings.math.uni-bielefeld.de/substitution/squar-chair/	With Decoration|Finite Rotations|P Adic Windowed Tiling|Polytopal Tiles|Self Similar Substitution|Parallelogram Tiles|Rhomb Tiles|Mld Class Chair	-
+squar-chair	Square Chair	https://tilings.math.uni-bielefeld.de/substitution/squar-chair/	With Decoration|Finite Rotations|P Adic Windowed Tiling|Polytopal Tiles|Self Similar Substitution|Parallelogram Tiles|Rhomb Tiles|Mld Class Chair	square-chair
 square-multiscale	Square Multiscale	https://tilings.math.uni-bielefeld.de/substitution/square-multiscale/		-
 square-triangle	Square-triangle	https://tilings.math.uni-bielefeld.de/substitution/square-triangle/		-
 square-triangle-pinwheel-variant	Square Triangle Pinwheel Variant	https://tilings.math.uni-bielefeld.de/substitution/square-triangle-pinwheel-variant/		-
 squeeze	Squeeze	https://tilings.math.uni-bielefeld.de/substitution/squeeze/	Self Similar Substitution|Polytopal Tiles|Plastic Number	-
 squiral	Squiral	https://tilings.math.uni-bielefeld.de/substitution/squiral/	Finite Rotations|Rep Tiles	-
-squiral-block	Squiral Block	https://tilings.math.uni-bielefeld.de/substitution/squiral-block/		-
+squiral-block	Squiral Block	https://tilings.math.uni-bielefeld.de/substitution/squiral-block/		squiral-block
 stampflis-12-fold-1	Stampfli's 12-fold 1	https://tilings.math.uni-bielefeld.de/substitution/stampflis-12-fold-1/		stampfli
 stampflis-12-fold-2	Stampfli's 12-fold 2	https://tilings.math.uni-bielefeld.de/substitution/stampflis-12-fold-2/		-
 stampflis-12-fold-wo-squares	Stampfli's 12-fold without squares	https://tilings.math.uni-bielefeld.de/substitution/stampflis-12-fold-wo-squares/		-
@@ -250,8 +250,8 @@ tribonacci	Tribonacci	https://tilings.math.uni-bielefeld.de/substitution/tribona
 tribonacci-dual	Tribonacci Dual	https://tilings.math.uni-bielefeld.de/substitution/tribonacci-dual/	Finite Rotations|Euclidean Windowed Tiling|Polytopal Windowed Tiling|Canonical Substitution Tiling|Polytopal Tiles|Parallelogram Tiles|Self Similar Substitution	-
 trihex	Trihex	https://tilings.math.uni-bielefeld.de/substitution/trihex/		-
 tritriangle	Tritriangle	https://tilings.math.uni-bielefeld.de/substitution/tritriangle/	Finite Rotations|Polytopal Tiles|Self Similar Substitution	-
-tromino1	Tromino 1	https://tilings.math.uni-bielefeld.de/substitution/tromino1/	Finite Rotations|Self Similar Substitution	-
-tromino2	Tromino 2	https://tilings.math.uni-bielefeld.de/substitution/tromino2/	Finite Rotations|Self Similar Substitution	-
+tromino1	Tromino 1	https://tilings.math.uni-bielefeld.de/substitution/tromino1/	Finite Rotations|Self Similar Substitution	tromino1
+tromino2	Tromino 2	https://tilings.math.uni-bielefeld.de/substitution/tromino2/	Finite Rotations|Self Similar Substitution	tromino2
 tuebingen-triangle	Tuebingen Triangle	https://tilings.math.uni-bielefeld.de/substitution/tuebingen-triangle/	Finite Rotations|Polytopal Windowed Tiling|Polytopal Tiles|Self Similar Substitution	-
 uberpinwheel	Uberpinwheel	https://tilings.math.uni-bielefeld.de/substitution/uberpinwheel/	Finite Rotations|Polytopal Tiles|Self Similar Substitution	-
 vampire	Vampire	https://tilings.math.uni-bielefeld.de/substitution/vampire/		-

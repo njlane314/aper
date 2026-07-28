@@ -1,9 +1,11 @@
 # aper
 
-`aper` renders Penrose, Ammann–Beenker, Pinwheel, Stampfli 12-fold 1, and
-two-dimensional Thue–Morse substitution systems as dense patches or rule
-sheets. `aper-search` runs a small, bounded search for candidate substitution
-rules and compares them with the executable reference bank.
+`aper` renders finite planar polygon substitutions as dense patches or rule
+sheets. Rule geometry lives in declarative `.aper` files; `RuleLibrary`, the
+iteration engine, validators, search, and PDF renderer are rule-independent.
+Six legacy projector-based presentations remain built in while they are
+migrated to the same data boundary. `aper-search` enumerates bounded geometric
+rule spaces and compares survivors with the executable rule library.
 
 They are small, dependency-free C++20 tools for the shell. Deterministic,
 native vector PDF goes to standard output; diagnostics go to standard error.
@@ -11,42 +13,57 @@ native vector PDF goes to standard output; diagnostics go to standard error.
 ```sh
 make
 ./aper > patch.pdf
-./aper -t p1 --rule > rule.pdf
-./aper-search --rule > square-rule.pdf
+./aper --library rules --tiling square-chair --rule > square-chair-rule.pdf
+./aper-search --definition > candidate.aper
+./aper --file candidate.aper -n 5 > candidate.pdf
+make rules-check
 ```
 
 ## Use
 
 ```text
-aper [-t type] [-s seed] [-c scheme] [-n depth] [-r]
+aper [-L library] [-t type | -f file] [-s seed] [-c scheme] [-n depth] [-r]
+aper [-L library] [-t type | -f file] --definition
 aper -h | --help
 aper -V | --version
 ```
 
-- `-t type` or `--tiling type` selects `p1` pentagon-boat-star, `p2`
-  kite-and-dart, `p3` rhombs, `ammann-beenker`, `pinwheel`, `stampfli`, or
-  `thue-morse-2d`. Short and descriptive aliases include `ab`,
-  `pentagon-boat-star`, `kite-dart`, `rhomb`, `stampfli-12-fold-1`, and
-  `thue-morse`. The default is `p3`.
+- `-t type` or `--tiling type` selects any library identifier. Six legacy
+  systems are built in: `p1`, `p2`, `p3`, `ammann-beenker`, `pinwheel`, and
+  `stampfli`. The distributed rule files add the nine systems listed below.
+  Short aliases include `ab`, `kite-dart`, `rhomb`, and `thue-morse`. The
+  default is `p3`.
+- `-f file` or `--file file` reads a complete substitution system from a
+  declarative `.aper` file; `-` reads standard input. It is mutually exclusive
+  with `--tiling`.
+- `-L directory` or `--library directory` recursively loads `.aper` files and
+  makes their identifiers available to `--tiling`. The local `rules/` directory
+  is loaded automatically when present, otherwise the installed library is
+  used. Built-ins are added as fallbacks; a duplicate identifier must describe
+  the same canonical rule.
 - `-s seed` or `--seed seed` selects the patch's starting design. P1 provides
   `pentagon-5`, `pentagon-3`, `pentagon-2`, `diamond`, `boat`, and `star`;
   P2 provides `sun`, `star`, `ace`, `deuce`, `jack`, `queen`, and `king`;
   P3 provides `sun`, `star`, `thin`, and `thick`; Ammann–Beenker provides
   `octagon`, `square`, and `rhomb`; Pinwheel provides `triangle`; Stampfli
   12-fold 1 provides `dodecagon`, `triangle`, `square`, and `rhomb`; and
-  Thue–Morse 2D provides `a` and `b`. Their defaults are `pentagon-5`, `sun`,
-  `sun`, `octagon`, `triangle`, `dodecagon`, and `a`, respectively. The P3
-  `thin` seed needs a depth of at least 2.
+  Thue–Morse 2D provides `a` and `b`; Chair and Domino each provide a seed of
+  the same name. Their defaults follow that order. The P3 `thin` seed needs a
+  depth of at least 2. File-defined systems declare their own seeds.
 - `-c scheme` or `--colour scheme` selects `flare`, `grove`, `electric`, or
   `tide`. The default is `flare`.
 - `-n depth` or `--depth depth` sets the number of substitutions. P1 accepts
   1 through 6 and defaults to 5; P2 and P3 accept 1 through 12 and default to
   7; Ammann–Beenker accepts 1 through 6 and defaults to 4; Pinwheel accepts
   1 through 8 and defaults to 6; Stampfli 12-fold 1 accepts 1 through 3 and
-  defaults to 2; Thue–Morse 2D accepts 1 through 7 and defaults to 4.
+  defaults to 2; Thue–Morse 2D accepts 1 through 7 and defaults to 4; Chair and
+  Domino accept 1 through 8 and default to 5. File-defined systems declare
+  their own limits.
 - `-r` or `--rule` draws a sheet containing every prototile and its one-step
   substitution instead of a patch. The tiling and colour options still apply;
   seed and depth are patch-only options.
+- `--definition` writes the selected system as normalised `.aper` text. It fails
+  closed if a legacy presentation cannot be represented exactly by format v1.
 - `-h` or `--help` prints a concise help message.
 - `-V` or `--version` prints the version.
 
@@ -55,6 +72,70 @@ For example, render the Pinwheel substitution rule:
 ```sh
 ./aper -t pinwheel --rule -c tide > pinwheel-rule.pdf
 ```
+
+## Rule files
+
+A `.aper` file contains data, not drawing code: named polygonal prototiles,
+their replacements, seeds, display fills, depth bounds, and optional source
+provenance. Child coordinates are written in the inflated parent, so a Chair
+rule is simply:
+
+```text
+aper 1
+id chair
+name "Chair"
+inflation 2
+depths 1 5 8
+default-seed chair
+
+tile chair 0
+polygon 0 0  2 0  2 1  1 1  1 2  0 2
+end
+
+rule chair
+child chair 0 0 0 normal
+child chair 0 4 -90 normal
+child chair 1 1 0 normal
+child chair 4 0 90 normal
+end
+
+seed chair 1
+place chair 0 0 1 0 normal
+end
+```
+
+Every tile type may have its own polygon and rule; children and seed placements
+may rotate or reflect. The reader rejects malformed references, inconsistent
+areas, non-simple polygons, escaped children, overlaps, gaps, and unmatched
+edges before rendering. See [Chair](rules/chair.aper),
+[Domino](rules/domino.aper), and the two-type test fixture
+[square](tests/data/square.aper).
+
+The shipped library includes Chair, Domino, Thue–Morse 2D, Square Chair,
+Squiral Block, Period Tripling 2D, Pentomino, and two Tromino systems. Run
+`make rules-check` to parse, canonicalise, iterate, and render every definition;
+see the [rule-library notes](rules/README.md).
+
+The v1 format deliberately covers finite two-dimensional polygonal
+substitutions with one scalar inflation and similarity transforms. General
+affine inflation, curved or fractal boundaries, infinitely many tile types,
+and multiscale rules need explicit later extensions; calling that narrower
+class “any substitution” would be misleading.
+
+For flat square-lattice rule diagrams, a strict importer can recover rule data
+without embedding the particular tiling in code:
+
+```sh
+tools/reconstruct-lattice-rule --id recovered --cells 5 diagram.png > recovered.aper
+./aper --file recovered.aper --rule > recovered-rule.pdf
+```
+
+It currently accepts one simply connected polyomino parent beside one complete
+replacement patch, with integer inflation and grid-aligned rotations or
+reflections. It proves an exact cover and rejects ambiguous, overlapping,
+gapped, or misaligned interpretations. The included Pentomino definition was
+recovered through this path; general diagrams still require reviewed
+transcription or a future model extension.
 
 ## Mathematical idea
 
@@ -90,62 +171,82 @@ suggest aperiodicity, but it cannot prove it.
 
 ## Search
 
-`aper-search` implements a complete discovery loop over two intentionally small
-control spaces. `square` has one unit-square prototile. `binary-square` has two
-semantic square types, $A$ and $B$, and exhausts every pair
-$\sigma_A,\sigma_B \in \{A,B\}^{2\times2}$ at inflation $\lambda=2$.
+`aper-search` now performs a geometric search. For each free connected
+polyomino $P$ with 1--6 cells, it places every rotated or reflected copy of
+$P$ on the integer lattice and solves the exact-cover problem
+
+$$
+2P = P_1 \sqcup P_2 \sqcup P_3 \sqcup P_4.
+$$
+
+Each solution becomes an ordinary `TilingSystem`; no renderer knows which
+polyomino or rule produced it.
 
 ```text
-exact cover → structural and area tests → strict geometry
-            → multi-generation checks → canonical key → PDF
+shape enumeration → exact cover → algebraic and geometric validation
+                  → multi-generation checks → canonical key → .aper or PDF
 ```
 
 ```sh
-./aper-search > square-candidate.pdf
-./aper-search --rule > square-rule.pdf
-./aper-search --space binary-square --list-candidates
-./aper-search --space binary-square --candidate 22 > binary-patch.pdf
-./aper-search --space binary-square --candidate 22 --rule > binary-rule.pdf
+./aper-search --list-candidates
+./aper-search --candidate 0 > chair.pdf
+./aper-search --candidate 0 --rule > chair-rule.pdf
+./aper-search --candidate 0 --definition > chair.aper
+./aper --file chair.aper -n 5 > chair-from-file.pdf
+./aper-search --cells 2 --list-candidates
 ```
 
 ```text
-aper-search [--space name] [--candidate n] [-c scheme] [-n depth] [-r]
-aper-search [--space name] [--candidate n] --classify
-aper-search [--space name] --list-candidates
-aper-search -l | --list-known
+aper-search [--space name] [--cells n] [--candidate n] [--bank dir] [-c scheme] [-n depth] [-r]
+aper-search [--space name] [--cells n] [--candidate n] [--bank dir] --definition
+aper-search [--space name] [--cells n] [--candidate n] [--bank dir] --classify
+aper-search [--space name] [--cells n] [--bank dir] --list-candidates
+aper-search [--bank dir] {-l | --list-known}
 aper-search -h | --help
 aper-search -V | --version
 ```
 
-Patch depth is 1--7 (default 4); `--rule` renders the rule instead.
-
-The one-type exact-cover search rediscovers the ordinary periodic square grid.
-The binary search examines all 256 raw rules; 224 have primitive incidence
-matrices and pass three generations of exact square-partition tests. One shared
-square symmetry in $D_4$, together with the global exchange $A\leftrightarrow
-B$, reduces these to 27 rule classes. The full result is deterministic:
+Patch depth is 1--7 (default 4); `--rule` renders the rule, `--definition`
+writes reusable `.aper` text, and `--bank DIR` selects the declarative library
+used for exact comparison. The default three-cell search is small but genuinely
+geometric:
 
 ```text
-256 generated → 224 primitive and geometrically valid → 27 unique
-                                                    → 1/7 exact bank matches
+2 free triominoes → 2 exact covers → 2 validated rules
+                                      ├── Chair: exact bank match
+                                      └── I-triomino: periodic control
 ```
 
-`GeometricValidator` rejects non-simple polygons, escaped or overlapping
-children, gaps, area errors, and unmatched atomic edges. Source-specific
-canonicalisation is important here: applying a different rotation to each
-parent would incorrectly merge distinct symbolic rules. The search instead
-uses one global $D_4$ frame and one global type relabelling.
+The complete supported sweep is deterministic:
 
-These are control experiments, not 27 claims of new geometric tilings: after
-forgetting $A/B$, every patch is the periodic square grid. Candidate 22
-rediscovers the known two-dimensional Thue–Morse rule; its exact match is
-computed with the same global $D_4$/type-swap equivalence as the search.
-An unmatched fingerprint says nothing about the other 250 reference-only bank
-records, alternate presentations, mutual local derivability, or aperiodicity.
-The result instead establishes a tested seam for searches on triangular
-lattices, polyominoes, or exact algebraic coordinates. The known P3 rule is
-also passed through the strict multi-generation validator as a regression
-control, but is not yet reconstructed by enumeration.
+| Cells | Exact covers | Unique rules | Exact bank matches |
+| ---: | ---: | ---: | :--- |
+| 1 | 1 | 1 | — |
+| 2 | 5 | 4 | Domino |
+| 3 | 2 | 2 | Chair |
+| 4 | 6 | 6 | — |
+| 5 | 3 | 3 | Pentomino |
+| 6 | 3 | 3 | — |
+| **Total** | **20** | **19** | **3** |
+
+Thus 16 exact fingerprints are absent from the fifteen-rule bank. Most are
+expected periodic grids, alternate rep-tile dissections, or known systems in a
+different presentation; they are candidates for analysis, not discoveries.
+
+`GeometricValidator` rejects non-simple polygons, escaped or overlapping
+children, gaps, area errors, and unmatched atomic edges. The Chair match is an
+independent rediscovery: the search knows only connected cells and exact cover,
+while the bank rule was encoded separately. Two- and five-cell runs likewise
+contain exact Domino and Pentomino matches.
+
+`square` and `binary-square` remain explicit pipeline controls. The latter
+still exhausts 256 labelled $2\times2$ rules and reduces them to 27 classes,
+including two-dimensional Thue–Morse. Their uncoloured geometry is only the
+periodic square grid, which is why they are no longer the default search.
+
+An unmatched exact fingerprint is a prompt for investigation, not a novelty or
+aperiodicity claim. Equivalent presentations, mutual local derivability, and
+mathematical proofs lie beyond canonical coordinate equality.
 
 ### Known-rule bank
 
@@ -153,7 +254,7 @@ The bank has two deliberately separate layers:
 
 - the included `data/encyclopedia.tsv` snapshot indexes 257 Encyclopedia
   pages, with titles, page URLs at the snapshot date, and classification tags;
-- `KnownTilingBank` fingerprints seven locally encoded `TilingSystem` objects
+- `KnownTilingBank` fingerprints fifteen locally encoded `TilingSystem` objects
   linked to their corresponding Encyclopedia records.
 
 ```sh
@@ -162,11 +263,9 @@ The bank has two deliberately separate layers:
 rg -i 'chair|rhomb|pinwheel' data/encyclopedia.tsv
 ```
 
-`--classify` reports canonical equality with an encoded substitution rule. Its
-square control currently prints `no-exact-match`; that means only that it is
-absent from the seven-rule executable bank, not that the periodic square grid
-is new. Names, refinements, projected presentations, MLD equivalence, and
-aperiodicity require broader analysis.
+`--classify` reports canonical equality with an encoded substitution rule. The
+default candidate reports Chair; the I-triomino reports no exact match among
+the fifteen encodings. That absence is not evidence that it is new.
 
 Refresh the metadata snapshot with one network request:
 
@@ -174,15 +273,14 @@ Refresh the metadata snapshot with one network request:
 make encyclopedia-bank
 ```
 
-The Encyclopedia provides diagrams rather than machine-readable child
-transforms. Its metadata snapshot is therefore reference-only; a page enters
-the executable bank only after its rule is reconstructed independently and
-passes structural validation. Literal partition rules can additionally pass
-`GeometricValidator`; projection-based presentation systems may contain
-overlapping construction pieces by design. The snapshot has its own attribution
-and CC BY-NC-SA 2.0 notice in `data/encyclopedia.NOTICE.md`; the `aper` code
-remains ISC-licensed. Because that licence is non-commercial and share-alike,
-the data is installed only on request with `make install-encyclopedia`.
+The Encyclopedia deliberately presents substitution diagrams rather than a
+machine-readable coordinate bank. Its 257-page snapshot contains no complete
+planar vertex-and-placement record, so a diagram becomes executable only after
+a reviewed transcription or an independent exact construction. Raster tracing
+is not silently promoted to mathematics. The metadata notice is in
+`data/encyclopedia.NOTICE.md`; reference-art and compiled-catalogue licensing is
+documented in `doc/catalogue/README.md`. The software and `.aper` rule encodings
+remain ISC-licensed.
 
 ### Complete catalogue
 
@@ -194,12 +292,10 @@ make catalogue          # populate the cache as needed, then build offline
 make catalogue-offline  # require an already complete cache
 ```
 
-The document contains all 257 records in the metadata snapshot, followed by all
-27 canonical binary-square search survivors. Seven bank plates are regenerated
-as native vector PDFs from executable `TilingSystem` objects. The other 250 use
-checksummed Encyclopedia reference artwork: these are visual references, not
-machine-readable rules reconstructed by `aper`. Every record has a published
-patch; 15 source pages provide no rule image and therefore receive an explicit
+The document contains all 257 records in the metadata snapshot, followed by the
+two triomino-search survivors. Fifteen local plates are generated as vector PDFs
+from executable geometry. Each of the remaining 242 plates uses a checksummed
+source patch; 227 also use source rule artwork, while 15 show an explicit rule
 placeholder rather than an invented rule.
 
 The first fetch is deliberately gentle and may take several minutes. Detail
@@ -215,9 +311,9 @@ authored/generated boundary and direct builder commands.
 The P1 family has six prototiles: three geometrically identical pentagons with
 different substitution roles, plus the diamond, boat, and star. The seven P2
 seeds are the classic vertex-centred Penrose patches. The two P3 prototile
-seeds complement its symmetric sun and star arrangements. The four added
-families use only convex triangles and quadrilaterals; Thue–Morse uses two
-semantic types of the same square.
+seeds complement its symmetric sun and star arrangements. Thue–Morse uses two
+semantic types of the same square; Chair and Domino demonstrate concave and
+rectangular file-defined rep-tiles.
 
 Patch output is clipped to an edge-to-edge 4:3 viewport. Rule output lays out
 each parent beside its inflated replacement patch. P2, P3, and Ammann–Beenker
@@ -249,9 +345,33 @@ not silently hidden.
 | **Thue–Morse 2D · Electric** | **Thue–Morse substitution · Electric** |
 | ![Two-dimensional Thue-Morse patch in electric colours](doc/aper-thue-morse-2d-a-electric.png) | ![Complementary two-dimensional Thue-Morse substitution rules](doc/aper-thue-morse-2d-rules-electric.png) |
 | `./aper -t thue-morse-2d -c electric -n 6 > thue-morse.pdf` | `./aper -t thue-morse-2d --rule -c electric > thue-morse-rule.pdf` |
-| **Square search control · Electric** | **Discovered square substitution · Electric** |
-| ![Square-grid control patch discovered by aper-search](doc/aper-search-square-patch-electric.png) | ![Square subdivision discovered by aper-search](doc/aper-search-square-rule-electric.png) |
-| `./aper-search -c electric > square.pdf` | `./aper-search --rule -c electric > square-rule.pdf` |
+| **Chair · Grove** | **Chair substitution · Grove** |
+| ![Chair rep-tile patch](doc/aper-chair-patch-grove.png) | ![Chair parent and four-child substitution](doc/aper-chair-rule-grove.png) |
+| `./aper --file rules/chair.aper -c grove -n 5 > chair.pdf` | `./aper --file rules/chair.aper --rule -c grove > chair-rule.pdf` |
+| **Domino · Tide** | **Domino substitution · Tide** |
+| ![Domino table-tiling patch](doc/aper-domino-patch-tide.png) | ![Domino parent and four-child substitution](doc/aper-domino-rule-tide.png) |
+| `./aper --file rules/domino.aper -c tide -n 5 > domino.pdf` | `./aper --file rules/domino.aper --rule -c tide > domino-rule.pdf` |
+| **Pentomino · Flare** | **Pentomino substitution · Flare** |
+| ![P-pentomino rep-tile patch](doc/aper-pentomino-patch-flare.png) | ![P-pentomino parent and exact four-child dissection](doc/aper-pentomino-rule-flare.png) |
+| `./aper --file rules/pentomino.aper -c flare -n 4 > pentomino.pdf` | `./aper --file rules/pentomino.aper --rule -c flare > pentomino-rule.pdf` |
+| **Period Tripling 2D · Electric** | **Period Tripling 2D substitution · Electric** |
+| ![Two-dimensional period-tripling patch](doc/aper-period-tripling-2d-patch-electric.png) | ![Two complementary period-tripling rules](doc/aper-period-tripling-2d-rule-electric.png) |
+| `./aper --file rules/period-tripling-2d.aper -c electric -n 4 > period-tripling.pdf` | `./aper --file rules/period-tripling-2d.aper --rule -c electric > period-tripling-rule.pdf` |
+| **Square Chair · Flare** | **Square Chair substitution · Flare** |
+| ![Four-type square-chair patch](doc/aper-square-chair-patch-flare.png) | ![Four square-chair replacement rules](doc/aper-square-chair-rule-flare.png) |
+| `./aper --file rules/square-chair.aper -c flare -n 5 > square-chair.pdf` | `./aper --file rules/square-chair.aper --rule -c flare > square-chair-rule.pdf` |
+| **Squiral Block · Grove** | **Squiral Block substitution · Grove** |
+| ![Two-type Squiral block patch](doc/aper-squiral-block-patch-grove.png) | ![Complementary three-by-three Squiral block rules](doc/aper-squiral-block-rule-grove.png) |
+| `./aper --file rules/squiral-block.aper -c grove -n 4 > squiral.pdf` | `./aper --file rules/squiral-block.aper --rule -c grove > squiral-rule.pdf` |
+| **Tromino 1 · Flare** | **Tromino 1 substitution · Flare** |
+| ![L-and-bar Tromino 1 patch](doc/aper-tromino1-patch-flare.png) | ![Tromino 1 replacement rules](doc/aper-tromino1-rule-flare.png) |
+| `./aper --file rules/tromino1.aper -c flare -n 5 > tromino1.pdf` | `./aper --file rules/tromino1.aper --rule -c flare > tromino1-rule.pdf` |
+| **Tromino 2 · Electric** | **Tromino 2 substitution · Electric** |
+| ![L-and-bar Tromino 2 patch](doc/aper-tromino2-patch-electric.png) | ![Tromino 2 replacement rules](doc/aper-tromino2-rule-electric.png) |
+| `./aper --file rules/tromino2.aper -c electric -n 5 > tromino2.pdf` | `./aper --file rules/tromino2.aper --rule -c electric > tromino2-rule.pdf` |
+| **Chair rediscovered · Electric** | **Discovered Chair rule · Electric** |
+| ![Chair patch generated by the polyomino search](doc/aper-search-chair-patch-electric.png) | ![Chair rule generated by exact cover](doc/aper-search-chair-rule-electric.png) |
+| `./aper-search -c electric -n 5 > found-chair.pdf` | `./aper-search --rule -c electric > found-chair-rule.pdf` |
 
 ### P1 seeds
 
@@ -307,7 +427,11 @@ The geometry and presentation are intentionally separate. `Prototile`,
 `Similarity`, `Patch`, `SubstitutionRule`, `SeedPatch`, and `TilingSystem` are
 first-class values. A generic engine iterates the same patch type used for
 named seeds and rule replacements; a catalogue owns names, aliases, defaults,
-and depth limits. Arbitrary discovered polygons use the unspecialised
+and depth limits. `SystemReader` and `SystemWriter` are the serialisation
+boundary, while `RuleLibrary` recursively composes validated files with legacy
+fallbacks. Thus file-defined, searched, and built-in literal rules meet in the
+same object model, and neither iteration nor rendering switches on a tiling
+name. Arbitrary polygons use the unspecialised
 `generic_polygon` presentation role; their `PrototileId` remains their semantic
 identity. Projection objects assemble construction triangles into familiar
 visible tiles only for patch presentation.
@@ -318,9 +442,10 @@ appended. `DiscoveryEngine` accepts candidates incrementally from a
 `CandidateSource`, applies incidence and area tests, invokes the stricter
 `GeometricValidator`, checks several generations, and removes duplicate
 `canonical_key()` serialisations. Generated candidates, accepted candidates,
-and expanded tiles all have independent bounds. The strict validator remains
-search-only: presentation systems may legitimately use overlapping
-construction pieces that are projected or deduplicated later.
+and expanded tiles all have independent bounds. File-defined literal
+partitions also pass the strict validator. Some legacy presentation systems
+use overlapping construction pieces that are projected or deduplicated later,
+so they retain structural rather than literal-partition validation.
 
 Each encoded system also carries structured `SourceReference` provenance.
 `KnownTilingBank` builds an in-memory canonical-key index over catalogue-owned
@@ -346,5 +471,8 @@ and colours its growing set of orientations. Stampfli 12-fold 1 follows the
 [three-tile rule](https://tilings.math.uni-bielefeld.de/substitution/stampflis-12-fold-1/),
 deduplicating shared boundary tiles in finite symmetric seeds. The
 [two-dimensional Thue–Morse rule](https://tilings.math.uni-bielefeld.de/substitution/thue-morse-2d/)
-uses complementary checkerboard blocks on two semantic square types. A compact
-PDF writer applies the selected colour scheme.
+uses complementary checkerboard blocks on two semantic square types. Chair is
+the independently rediscovered L-triomino rep-tile; Domino follows the exact
+four-map example in the Encyclopedia's
+[substitution glossary](https://tilings.math.uni-bielefeld.de/glossary/substitution/).
+A compact PDF writer applies the selected colour scheme.

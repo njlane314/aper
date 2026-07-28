@@ -1,59 +1,96 @@
 .TH APER-SEARCH 1 "July 28, 2026" "aper" "User Commands"
 .SH NAME
-aper-search \- search a bounded substitution space and render its survivor
+aper-search \- search bounded geometric substitution spaces
 .SH SYNOPSIS
 .B aper-search
 .RB [ \-\-space " name" ]
+.RB [ \-\-cells " count" ]
 .RB [ \-\-candidate " index" ]
+.RB [ \-\-bank " directory" ]
 .RB [ \-c " scheme" ]
 .RB [ \-n " depth" ]
 .RB [ \-r ]
 .br
 .B aper-search
 .RB [ \-\-space " name" ]
+.RB [ \-\-cells " count" ]
 .RB [ \-\-candidate " index" ]
-.BR " " { \-k | \-\-classify }
+.RB [ \-\-bank " directory" ]
+.BR " " { \-\-definition | \-\-classify }
 .br
 .B aper-search
 .RB [ \-\-space " name" ]
+.RB [ \-\-cells " count" ]
+.RB [ \-\-bank " directory" ]
 .B \--list-candidates
 .br
-.BR aper-search " " { \-l | \-\-list-known }
+.B aper-search
+.RB [ \-\-bank " directory" ]
+.BR " " { \-l | \-\-list-known }
 .br
 .BR aper-search " " { \-h | \-\-help }
 .br
 .BR aper-search " " { \-V | \-\-version }
 .SH DESCRIPTION
 .B aper-search
-exercises the discovery pipeline over deliberately finite square-grid spaces.
-The one-type control covers a unit square with half-scale squares.  The
-two-type space exhausts all 256 pairs of binary 2 by 2 replacement blocks.
-It checks substitution matrices and geometry, verifies several generations,
-removes equivalent results under one global square symmetry and type
-relabelling, and writes a selected rule or patch as native vector PDF to
-standard output.
+enumerates a finite rule space, applies algebraic and geometric tests, checks
+several generations, removes canonically equivalent rules, and writes one
+survivor as a native vector PDF or declarative
+.B .aper
+system.
 .PP
-The uncoloured geometry remains the periodic square grid.  The semantic tile
-types can have nonperiodic symbolic dynamics, but a finite search result alone
-does not prove that property.  These are control cases for extending the
-search to richer prototiles, not claims of novelty or aperiodicity.
+The default polyomino search enumerates every free connected polyomino of the
+selected size.  For each shape P it places all integer-lattice rotations and
+reflections inside the twofold inflation 2P, then uses exact cover to find
+dissections of 2P into four copies of P.  Cell counts 1 through 6 are supported.
 .PP
-The known-rule bank contains the Encyclopedia systems independently encoded
-by aper.  Classification tests exact canonical rule equivalence only.  Failure
-to match this necessarily incomplete bank is not evidence of novelty.
+With three cells, the L-triomino result exactly rediscovers the separately
+encoded Chair rule; the straight triomino is a periodic control.  The legacy
+square and binary-square spaces remain explicit pipeline controls.  A survivor
+or failed bank match is not evidence of novelty, nonperiodicity, or
+aperiodicity.
+.PP
+The known-rule bank contains systems locally encoded as executable geometry.
+In the source tree, the default
+.I ./rules
+directory contributes nine declarative rules and six legacy built-in fallbacks
+complete a fifteen-system bank.  When no local rule directory is present, an
+installed copy reads the same nine rules from
+.IR PREFIX/share/aper/rules .
+Classification tests exact canonical rule equivalence only; it does not detect
+names, decorated refinements, mutual local derivability, or proofs of
+aperiodicity.
 .SH OPTIONS
 .TP
 .BR \--space " " name
 Search
-.B square
+.BR polyomino ,
+.BR square ,
 or
 .BR binary-square .
 The default is
-.BR square .
+.BR polyomino .
+.TP
+.BR \--cells " " count
+Use polyominoes with 1 through 6 cells.
+The default is 3.
+This option is available only in the polyomino space.
 .TP
 .BR \--candidate " " index
-Select a zero-based canonical survivor to render or classify.
+Select a zero-based canonical survivor to render, serialise, or classify.
 The default is 0.
+.TP
+.BR \--bank " " directory
+Recursively load every
+.B .aper
+definition below
+.I directory
+into the known-rule bank, then add built-in systems as fallbacks.
+Without this option, aper-search first tries
+.I ./rules
+and, when that directory is absent, the installed
+.I PREFIX/share/aper/rules
+bank.
 .TP
 .B \--list-candidates
 Write deterministic tab-separated search statistics and every survivor with
@@ -72,18 +109,24 @@ The default is
 .BR \-n ", " \-\-depth " " depth
 Render the patch after 1 through 7 substitutions.
 The default is 4.
-This option may not be used with rule output.
+This option is PDF-patch output only.
 .TP
 .BR \-r ", " \-\-rule
 Render the discovered substitution rule instead of a finite patch.
+.TP
+.B \--definition
+Write the selected candidate as a reusable declarative
+.B .aper
+system instead of PDF.
+This serialises the search survivor, not a matching legacy bank entry.
 .TP
 .BR \-k ", " \-\-classify
 Write a text classification of the selected survivor against the encoded
 known-rule bank instead of rendering PDF.
 .TP
 .BR \-l ", " \-\-list-known
-List the local system id, Encyclopedia record, and source URL for every
-encoded known rule.
+List the local system identifier, Encyclopedia record, and source URL for every
+source-linked rule in the composed executable bank.
 .TP
 .BR \-h ", " \-\-help
 Print a concise help message and exit.
@@ -91,40 +134,52 @@ Print a concise help message and exit.
 .BR \-V ", " \-\-version
 Print the version and exit.
 .SH EXAMPLES
-Run the control search and render its depth-4 patch:
+Inspect the complete three-cell search and render its Chair survivor:
 .PP
 .EX
-aper-search > square-candidate.pdf
+aper-search --list-candidates
+aper-search --candidate 0 > chair.pdf
+aper-search --candidate 0 --rule > chair-rule.pdf
 .EE
 .PP
-Render the rule found by the same search:
+Make the discovered rule durable, then render it through the generic reader:
 .PP
 .EX
-aper-search --rule > square-rule.pdf
+aper-search --candidate 0 --definition > chair.aper
+aper --file chair.aper -n 5 > chair-from-file.pdf
 .EE
 .PP
-Exhaust the binary square space, inspect its 27 canonical survivors, and
-render survivor 22:
+Search dominoes and classify their survivors:
+.PP
+.EX
+aper-search --cells 2 --list-candidates
+aper-search --cells 2 --candidate 2 --classify
+.EE
+.PP
+Run the labelled square control that contains the Thue-Morse rediscovery:
 .PP
 .EX
 aper-search --space binary-square --list-candidates
-aper-search --space binary-square --candidate 22 > candidate.pdf
-aper-search --space binary-square --candidate 22 --rule > candidate-rule.pdf
-.EE
-.PP
-Inspect the executable bank and classify that survivor:
-.PP
-.EX
-aper-search --list-known
 aper-search --space binary-square --candidate 22 --classify
 .EE
 .PP
-Survivor 22 is an exact rediscovery of the encoded two-dimensional Thue-Morse
-rule.  Other unmatched survivors remain candidates rather than novelty claims.
+Classify against an explicitly selected declarative bank:
+.PP
+.EX
+aper-search --bank rules --list-known
+aper-search --bank rules --cells 5 --list-candidates
+.EE
 .SH FILES
 .TP
+.I ./rules
+First default recursively searched rule-bank directory when it exists.
+.TP
+.I PREFIX/share/aper/rules
+Installed fallback rule-bank directory.
+.TP
 .I PREFIX/share/aper/encyclopedia.tsv
-Metadata-only reference index of the Tilings Encyclopedia substitution pages.
+Metadata-only reference index of the Tilings Encyclopedia substitution pages;
+it is not used for executable rule classification.
 Installed separately by
 .BR "make install-encyclopedia" .
 .TP
@@ -132,8 +187,8 @@ Installed separately by
 Attribution, licence, and transformation notice for the reference index.
 .SH EXIT STATUS
 .B aper-search
-exits zero after writing the requested PDF, classification, or bank listing.
-It exits non-zero if its arguments or candidate index are invalid, the search
-invariant fails, or output cannot be written.
+exits zero after writing the requested PDF, definition, classification, or
+listing.  It exits non-zero if an argument or candidate index is invalid, a
+search bound is exceeded, an invariant fails, or output cannot be written.
 .SH SEE ALSO
 .BR aper (1)

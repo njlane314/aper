@@ -4,6 +4,7 @@
 #include <cmath>
 #include <compare>
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <tuple>
 #include <utility>
@@ -199,7 +200,11 @@ Patch SubstitutionRule::apply(const Patch& patch,
                               std::span<const Prototile> prototiles) const {
     std::size_t count = 0;
     for (const auto& placement : patch.placements()) {
-        count += replacement(placement.prototile).size();
+        const auto replacement_size = replacement(placement.prototile).size();
+        if (replacement_size > std::numeric_limits<std::size_t>::max() - count) {
+            throw std::length_error("substitution patch is too large");
+        }
+        count += replacement_size;
     }
 
     std::vector<Placement> children;
@@ -235,6 +240,11 @@ IncidenceMatrix SubstitutionRule::incidence_matrix(std::size_t prototile_count) 
     }
     return matrix;
 }
+
+TilingSystem::TilingSystem(SystemSpec spec, std::vector<Prototile> prototiles,
+                           SubstitutionRule rule, std::vector<SeedPatch> seeds)
+    : TilingSystem(std::move(spec), std::move(prototiles), std::move(rule),
+                   std::move(seeds), identity_projector()) {}
 
 TilingSystem::TilingSystem(SystemSpec spec, std::vector<Prototile> prototiles,
                            SubstitutionRule rule, std::vector<SeedPatch> seeds,

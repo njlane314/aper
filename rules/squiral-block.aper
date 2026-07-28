@@ -1,0 +1,44 @@
+aper 1
+id squiral-block
+name "Squiral Block"
+inflation 3
+depths 1 4 6
+default-seed left
+deduplicate false
+source "Tilings Encyclopedia" "squiral-block" "https://tilings.math.uni-bielefeld.de/substitution/squiral-block/" "D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia" "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+
+tile left 4
+polygon 0 0  1 0  1 1  0 1
+end
+
+tile right 12
+polygon 0 0  1 0  1 1  0 1
+end
+
+rule left
+child left 0 2 0 normal
+child right 1 2 0 normal
+child left 2 2 0 normal
+child right 0 1 0 normal
+child right 1 1 0 normal
+child right 2 1 0 normal
+child left 0 0 0 normal
+child right 1 0 0 normal
+child left 2 0 0 normal
+end
+
+rule right
+child right 0 2 0 normal
+child left 1 2 0 normal
+child right 2 2 0 normal
+child left 0 1 0 normal
+child left 1 1 0 normal
+child left 2 1 0 normal
+child right 0 0 0 normal
+child left 1 0 0 normal
+child right 2 0 0 normal
+end
+
+seed left 1
+place left 0 0 1 0 normal
+end
