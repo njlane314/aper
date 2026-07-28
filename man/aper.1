@@ -14,9 +14,10 @@ aper \- render substitution tilings as PDF
 .BR aper " " { \-V | \-\-version }
 .SH DESCRIPTION
 .B aper
-generates either a clipped, edge-to-edge Penrose, Ammann-Beenker, Pinwheel, or
-Stampfli 12-fold 1 tiling patch, or a sheet showing a tiling system's
-substitution rules, and writes a complete native vector PDF to standard output.
+generates either a clipped, edge-to-edge Penrose, Ammann-Beenker, Pinwheel,
+Stampfli 12-fold 1, or two-dimensional Thue-Morse tiling patch, or a sheet
+showing a tiling system's substitution rules, and writes a complete native
+vector PDF to standard output.
 Diagnostics are written to standard error, so the PDF can be redirected or
 piped without contamination.
 .SH OPTIONS
@@ -32,9 +33,11 @@ for thin and thick Penrose rhombs,
 .B ammann-beenker
 for squares and 45-degree rhombs,
 .B pinwheel
-for right triangles, or
+for right triangles,
 .B stampfli
-for the three-tile 12-fold 1 rule.
+for the three-tile 12-fold 1 rule, or
+.B thue-morse-2d
+for complementary binary square blocks.
 The descriptive aliases
 .BR pentagon-boat-star ,
 .BR kite-dart ,
@@ -44,7 +47,9 @@ plus the short aliases
 .B ab
 and
 .BR stampfli-12-fold-1 ,
-are also accepted.
+and the
+.B thue-morse
+alias are also accepted.
 The default is
 .BR p3 .
 .TP
@@ -86,6 +91,10 @@ Stampfli 12-fold 1 provides
 .BR square ,
 and
 .BR rhomb .
+Thue-Morse 2D provides
+.B a
+and
+.BR b .
 P1 defaults to
 .BR pentagon-5 ;
 P2 and P3 default to
@@ -94,8 +103,10 @@ Ammann-Beenker defaults to
 .BR octagon ;
 Pinwheel defaults to
 .BR triangle ;
-and Stampfli 12-fold 1 defaults to
-.BR dodecagon .
+Stampfli 12-fold 1 defaults to
+.BR dodecagon ;
+and Thue-Morse 2D defaults to
+.BR a .
 The P3
 .B thin
 seed requires a depth of at least 2.
@@ -118,6 +129,7 @@ P2 and P3 accept an integer from 1 through 12 and default to 7.
 Ammann-Beenker accepts 1 through 6 and defaults to 4.
 Pinwheel accepts 1 through 8 and defaults to 6.
 Stampfli 12-fold 1 accepts 1 through 3 and defaults to 2.
+Thue-Morse 2D accepts 1 through 7 and defaults to 4.
 .TP
 .BR \-r ", " \-\-rule
 Render a sheet containing every prototile and its one-step substitution
@@ -160,6 +172,12 @@ Render the Pinwheel substitution rule:
 .PP
 .EX
 aper -t pinwheel --rule -c tide > pinwheel-rule.pdf
+.EE
+.PP
+Render the two-dimensional Thue-Morse rule:
+.PP
+.EX
+aper -t thue-morse-2d --rule > thue-morse-rule.pdf
 .EE
 .SH EXIT STATUS
 .B aper

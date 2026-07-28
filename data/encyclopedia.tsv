@@ -235,7 +235,7 @@ tetris	Tetris	https://tilings.math.uni-bielefeld.de/substitution/tetris/	Finite 
 tetris-faktor-2	Tetris Faktor 2	https://tilings.math.uni-bielefeld.de/substitution/tetris-faktor-2/		-
 tetris-faktor-3	Tetris Faktor 3	https://tilings.math.uni-bielefeld.de/substitution/tetris-faktor-3/		-
 thue-morse	Thue Morse	https://tilings.math.uni-bielefeld.de/substitution/thue-morse/	One Dimensional|Self Similar Substitution	-
-thue-morse-2d	Thue Morse 2D	https://tilings.math.uni-bielefeld.de/substitution/thue-morse-2d/		-
+thue-morse-2d	Thue Morse 2D	https://tilings.math.uni-bielefeld.de/substitution/thue-morse-2d/		thue-morse-2d
 tiling-with-transcendental-inflation-multiplier	Tiling with Transcendental Inflation Multiplier	https://tilings.math.uni-bielefeld.de/substitution/tiling-with-transcendental-inflation-multiplier/	One Dimensional|Self Similar Substitution	-
 tipi-3-1	Tipi-3-1	https://tilings.math.uni-bielefeld.de/substitution/tipi-3-1/	Infinite Rotations|Finite Local Complexity|Polytopal Tiles|Self Similar Substitution	-
 trapez-z	Trapez Z	https://tilings.math.uni-bielefeld.de/substitution/trapez-z/		-

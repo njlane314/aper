@@ -670,14 +670,47 @@ TilingSystem make_stampfli_system() {
     };
 }
 
+TilingSystem make_thue_morse_system() {
+    constexpr std::array positions{
+        Point{0.0, 0.0},
+        Point{0.5, 0.0},
+        Point{0.0, 0.5},
+        Point{0.5, 0.5},
+    };
+    const auto patch = [&](std::array<PrototileId, 4> pattern) {
+        std::vector<Placement> placements;
+        placements.reserve(pattern.size());
+        for (std::size_t i = 0; i < pattern.size(); ++i) {
+            placements.push_back(
+                {pattern[i], aper::Similarity{positions[i], {0.5, 0.0}}});
+        }
+        return Patch{std::move(placements)};
+    };
+    const std::vector<Point> square{{0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}};
+    return {
+        {"thue-morse-2d",
+         "Thue-Morse 2D",
+         {"thue-morse"},
+         "a",
+         {1, 4, 7},
+         {encyclopedia_reference("thue-morse-2d")}},
+        {{0, "a", Shape::square, square, 0},
+         {1, "b", Shape::square, square, maximum_fill}},
+        SubstitutionRule{2.0, {{0, patch({0, 1, 1, 0})}, {1, patch({1, 0, 0, 1})}}},
+        {{"a", Patch{{Placement{0, {}}}}, 1}, {"b", Patch{{Placement{1, {}}}}, 1}},
+        identity_projector(),
+    };
+}
+
 } // namespace
 
 std::vector<TilingSystem> make_straight_systems() {
     std::vector<TilingSystem> systems;
-    systems.reserve(3);
+    systems.reserve(4);
     systems.push_back(make_ammann_system());
     systems.push_back(make_pinwheel_system());
     systems.push_back(make_stampfli_system());
+    systems.push_back(make_thue_morse_system());
     return systems;
 }
 

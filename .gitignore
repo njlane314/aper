@@ -1,6 +1,9 @@
 /.build/
+/.cache/
 /aper
 /aper-search
+__pycache__/
+*.pyc
 *.pdf
 *.png
 !doc/*.png

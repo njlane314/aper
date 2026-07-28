@@ -1,6 +1,7 @@
 #include "discovery.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <compare>
 #include <cstdint>
@@ -580,49 +581,141 @@ std::string serialise_polygon(std::span<const Point> polygon,
 }
 
 std::string rule_case_key(const TilingSystem& system, PrototileId parent,
-                          std::span<const PrototileId> renamed, double tolerance) {
-    const auto boundary =
-        remove_collinear_vertices(system.prototile(parent).boundary, tolerance);
-    std::string best;
-    for (std::size_t i = 0; i < boundary.size(); ++i) {
-        for (const bool reverse_axis : {false, true}) {
-            const auto first =
-                reverse_axis ? boundary[(i + 1) % boundary.size()] : boundary[i];
-            const auto second =
-                reverse_axis ? boundary[i] : boundary[(i + 1) % boundary.size()];
-            const auto axis = second - first;
-            if (std::abs(axis) <= tolerance) {
-                continue;
-            }
-            for (const bool reflected : {false, true}) {
-                const CanonicalFrame frame{first, axis, reflected};
-                std::vector<std::string> children;
-                const auto& replacement = system.rule().replacement(parent);
-                children.reserve(replacement.size());
-                for (const auto& placement : replacement.placements()) {
-                    const auto polygon = transformed_boundary(
-                        system.prototile(placement.prototile), placement.pose);
-                    children.push_back(std::to_string(renamed[placement.prototile]) +
-                                       (placement.pose.reflected() ? "r:" : "p:") +
-                                       serialise_polygon(polygon, frame, tolerance));
-                }
-                std::sort(children.begin(), children.end());
+                          std::span<const PrototileId> renamed,
+                          const CanonicalFrame& frame, double tolerance) {
+    std::vector<std::string> children;
+    const auto& replacement = system.rule().replacement(parent);
+    children.reserve(replacement.size());
+    for (const auto& placement : replacement.placements()) {
+        const auto polygon =
+            transformed_boundary(system.prototile(placement.prototile), placement.pose);
+        children.push_back(std::to_string(renamed[placement.prototile]) +
+                           (placement.pose.reflected() ? "r:" : "p:") +
+                           serialise_polygon(polygon, frame, tolerance));
+    }
+    std::sort(children.begin(), children.end());
 
-                auto candidate = serialise_polygon(boundary, frame, tolerance) + "{";
-                for (const auto& child : children) {
-                    candidate += child + '|';
-                }
-                candidate += '}';
-                if (best.empty() || candidate < best) {
-                    best = std::move(candidate);
-                }
-            }
+    auto result =
+        serialise_polygon(system.prototile(parent).boundary, frame, tolerance) + "{";
+    for (const auto& child : children) {
+        result += child + '|';
+    }
+    result += '}';
+    return result;
+}
+
+constexpr std::array binary_square_positions{
+    Point{0.0, 0.0},
+    Point{0.5, 0.0},
+    Point{0.0, 0.5},
+    Point{0.5, 0.5},
+};
+
+constexpr std::array<std::array<unsigned, 4>, 8> square_symmetries{{
+    {{0, 1, 2, 3}},
+    {{1, 3, 0, 2}},
+    {{3, 2, 1, 0}},
+    {{2, 0, 3, 1}},
+    {{1, 0, 3, 2}},
+    {{2, 3, 0, 1}},
+    {{0, 2, 1, 3}},
+    {{3, 1, 2, 0}},
+}};
+
+Patch binary_square_patch(unsigned mask) {
+    std::vector<Placement> placements;
+    placements.reserve(binary_square_positions.size());
+    for (std::size_t cell = 0; cell < binary_square_positions.size(); ++cell) {
+        placements.push_back({static_cast<PrototileId>((mask >> cell) & 1U),
+                              Similarity{binary_square_positions[cell], {0.5, 0.0}}});
+    }
+    return Patch{std::move(placements)};
+}
+
+std::string two_digits(unsigned value) {
+    return (value < 10 ? "0" : "") + std::to_string(value);
+}
+
+TilingSystem binary_square_system(unsigned first, unsigned second) {
+    const auto masks = two_digits(first) + '-' + two_digits(second);
+    const std::vector<Point> square{{0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}};
+    return {
+        {"binary-square-" + masks, "Binary square " + masks, {}, "a", {1, 4, 7}},
+        {{0, "a", Shape::generic_polygon, square, 0},
+         {1, "b", Shape::generic_polygon, square, maximum_fill}},
+        SubstitutionRule{
+            2.0, {{0, binary_square_patch(first)}, {1, binary_square_patch(second)}}},
+        {{"a", Patch{{Placement{0, {}}}}, 1}, {"b", Patch{{Placement{1, {}}}}, 1}},
+        identity_projector(),
+    };
+}
+
+unsigned binary_square_mask(const TilingSystem& system, PrototileId parent,
+                            double tolerance) {
+    const auto& replacement = system.rule().replacement(parent);
+    if (replacement.size() != binary_square_positions.size()) {
+        throw std::invalid_argument(
+            "binary-square rule must place four children per parent");
+    }
+
+    std::array<bool, 4> occupied{};
+    unsigned mask = 0;
+    for (const auto& placement : replacement.placements()) {
+        if (placement.prototile > 1 || placement.pose.reflected() ||
+            std::abs(placement.pose.multiplier() - Point{0.5, 0.0}) > tolerance) {
+            throw std::invalid_argument(
+                "binary-square rule contains a non-lattice placement");
+        }
+        const auto translation = placement.pose.translation();
+        const auto x = std::llround(2.0 * translation.real());
+        const auto y = std::llround(2.0 * translation.imag());
+        if (x < 0 || x > 1 || y < 0 || y > 1 ||
+            std::abs(translation.real() - 0.5 * static_cast<double>(x)) > tolerance ||
+            std::abs(translation.imag() - 0.5 * static_cast<double>(y)) > tolerance) {
+            throw std::invalid_argument(
+                "binary-square rule contains a non-lattice placement");
+        }
+        const auto cell = static_cast<std::size_t>(2 * y + x);
+        if (occupied[cell]) {
+            throw std::invalid_argument(
+                "binary-square rule places two children in one cell");
+        }
+        occupied[cell] = true;
+        mask |= static_cast<unsigned>(placement.prototile) << cell;
+    }
+    return mask;
+}
+
+bool unit_square(std::span<const Point> boundary, double tolerance) {
+    if (boundary.size() != 4 || !simple_polygon(boundary, tolerance)) {
+        return false;
+    }
+    std::array<bool, 4> occupied{};
+    for (const auto point : boundary) {
+        const auto x = std::llround(point.real());
+        const auto y = std::llround(point.imag());
+        if (x < 0 || x > 1 || y < 0 || y > 1 ||
+            std::abs(point.real() - static_cast<double>(x)) > tolerance ||
+            std::abs(point.imag() - static_cast<double>(y)) > tolerance) {
+            return false;
+        }
+        const auto corner = static_cast<std::size_t>(2 * y + x);
+        if (occupied[corner]) {
+            return false;
+        }
+        occupied[corner] = true;
+    }
+    return true;
+}
+
+unsigned transform_mask(unsigned mask, std::span<const unsigned, 4> permutation) {
+    unsigned transformed = 0;
+    for (std::size_t cell = 0; cell < permutation.size(); ++cell) {
+        if ((mask & (1U << cell)) != 0) {
+            transformed |= 1U << permutation[cell];
         }
     }
-    if (best.empty()) {
-        throw std::invalid_argument("prototile has no nonzero canonical edge");
-    }
-    return best;
+    return transformed;
 }
 
 struct ExactCoverRow {
@@ -890,17 +983,43 @@ std::string canonical_key(const TilingSystem& system, double tolerance) {
             renamed[type_order[replacement]] = replacement;
         }
 
-        std::string candidate =
-            "aper-candidate-v1|types=" + std::to_string(count) + "|inflation=" +
+        const std::string prefix =
+            "aper-candidate-v2|types=" + std::to_string(count) + "|inflation=" +
             std::to_string(quantise(system.rule().inflation(), tolerance)) +
             "|deduplicate=" + (system.rule().deduplicates() ? "1" : "0") + '|';
-        for (PrototileId replacement = 0; replacement < count; ++replacement) {
-            candidate +=
-                "T" + std::to_string(replacement) + ':' +
-                rule_case_key(system, type_order[replacement], renamed, tolerance) +
-                '|';
+        const auto anchor = remove_collinear_vertices(
+            system.prototile(type_order.front()).boundary, tolerance);
+        std::string best;
+        for (std::size_t i = 0; i < anchor.size(); ++i) {
+            for (const bool reverse_axis : {false, true}) {
+                const auto first =
+                    reverse_axis ? anchor[(i + 1) % anchor.size()] : anchor[i];
+                const auto second =
+                    reverse_axis ? anchor[i] : anchor[(i + 1) % anchor.size()];
+                const auto axis = second - first;
+                if (std::abs(axis) <= tolerance) {
+                    continue;
+                }
+                for (const bool reflected : {false, true}) {
+                    const CanonicalFrame frame{first, axis, reflected};
+                    auto candidate = prefix;
+                    for (PrototileId replacement = 0; replacement < count;
+                         ++replacement) {
+                        candidate += "T" + std::to_string(replacement) + ':' +
+                                     rule_case_key(system, type_order[replacement],
+                                                   renamed, frame, tolerance) +
+                                     '|';
+                    }
+                    if (best.empty() || candidate < best) {
+                        best = std::move(candidate);
+                    }
+                }
+            }
         }
-        return candidate;
+        if (best.empty()) {
+            throw std::invalid_argument("prototile has no nonzero canonical edge");
+        }
+        return best;
     };
 
     constexpr std::size_t maximum_permuted_types = 8;
@@ -916,6 +1035,55 @@ std::string canonical_key(const TilingSystem& system, double tolerance) {
         }
     } while (std::next_permutation(order.begin(), order.end()));
     return best;
+}
+
+std::string CandidateSource::canonicalise(const TilingSystem& candidate,
+                                          double tolerance) const {
+    return canonical_key(candidate, tolerance);
+}
+
+void BinarySquareSearch::enumerate(const Visitor& visit) const {
+    constexpr unsigned patterns = 1U << binary_square_positions.size();
+    for (unsigned first = 0; first < patterns; ++first) {
+        for (unsigned second = 0; second < patterns; ++second) {
+            if (!visit(binary_square_system(first, second))) {
+                return;
+            }
+        }
+    }
+}
+
+std::string BinarySquareSearch::canonicalise(const TilingSystem& candidate,
+                                             double tolerance) const {
+    if (!std::isfinite(tolerance) || tolerance <= 0.0) {
+        throw std::invalid_argument(
+            "binary-square tolerance must be finite and positive");
+    }
+    if (!candidate.validate().empty() || candidate.prototiles().size() != 2 ||
+        std::abs(candidate.rule().inflation() - 2.0) > tolerance ||
+        !std::all_of(candidate.prototiles().begin(), candidate.prototiles().end(),
+                     [&](const auto& prototile) {
+                         return unit_square(prototile.boundary, tolerance);
+                     })) {
+        throw std::invalid_argument(
+            "binary-square canonicalisation requires a valid two-type unit-square "
+            "rule");
+    }
+
+    const auto first = binary_square_mask(candidate, 0, tolerance);
+    const auto second = binary_square_mask(candidate, 1, tolerance);
+    auto best = std::pair{std::numeric_limits<unsigned>::max(),
+                          std::numeric_limits<unsigned>::max()};
+    constexpr unsigned complement = 0x0fU;
+    for (const auto& symmetry : square_symmetries) {
+        const auto transformed_first = transform_mask(first, symmetry);
+        const auto transformed_second = transform_mask(second, symmetry);
+        best = std::min(best, std::pair{transformed_first, transformed_second});
+        best = std::min(best, std::pair{complement ^ transformed_second,
+                                        complement ^ transformed_first});
+    }
+    return "aper-binary-square-v1|a=" + std::to_string(best.first) +
+           "|b=" + std::to_string(best.second);
 }
 
 void SquareLatticeSearch::enumerate(const Visitor& visit) const {
@@ -1019,7 +1187,7 @@ DiscoveryResult DiscoveryEngine::run(const CandidateSource& source) const {
         ++result.statistics.geometrically_valid;
         std::string serialisation;
         try {
-            serialisation = canonical_key(candidate, options_.geometry.tolerance);
+            serialisation = source.canonicalise(candidate, options_.geometry.tolerance);
         } catch (const std::invalid_argument&) {
             return may_continue();
         }

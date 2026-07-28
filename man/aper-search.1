@@ -3,11 +3,20 @@
 aper-search \- search a bounded substitution space and render its survivor
 .SH SYNOPSIS
 .B aper-search
+.RB [ \-\-space " name" ]
+.RB [ \-\-candidate " index" ]
 .RB [ \-c " scheme" ]
 .RB [ \-n " depth" ]
 .RB [ \-r ]
 .br
-.BR aper-search " " { \-k | \-\-classify }
+.B aper-search
+.RB [ \-\-space " name" ]
+.RB [ \-\-candidate " index" ]
+.BR " " { \-k | \-\-classify }
+.br
+.B aper-search
+.RB [ \-\-space " name" ]
+.B \--list-candidates
 .br
 .BR aper-search " " { \-l | \-\-list-known }
 .br
@@ -16,19 +25,39 @@ aper-search \- search a bounded substitution space and render its survivor
 .BR aper-search " " { \-V | \-\-version }
 .SH DESCRIPTION
 .B aper-search
-exercises the discovery pipeline over one deliberately small control problem:
-covering a unit square with half-scale squares on a 2 by 2 grid.
-It enumerates the exact cover, checks its substitution matrix and geometry,
-verifies five generations, removes canonically equivalent results, and writes
-the surviving rule or patch as native vector PDF to standard output.
+exercises the discovery pipeline over deliberately finite square-grid spaces.
+The one-type control covers a unit square with half-scale squares.  The
+two-type space exhausts all 256 pairs of binary 2 by 2 replacement blocks.
+It checks substitution matrices and geometry, verifies several generations,
+removes equivalent results under one global square symmetry and type
+relabelling, and writes a selected rule or patch as native vector PDF to
+standard output.
 .PP
-The discovered square grid is periodic.  It is a control case for extending
-the search to richer prototiles, not a claim of novelty or aperiodicity.
+The uncoloured geometry remains the periodic square grid.  The semantic tile
+types can have nonperiodic symbolic dynamics, but a finite search result alone
+does not prove that property.  These are control cases for extending the
+search to richer prototiles, not claims of novelty or aperiodicity.
 .PP
 The known-rule bank contains the Encyclopedia systems independently encoded
 by aper.  Classification tests exact canonical rule equivalence only.  Failure
 to match this necessarily incomplete bank is not evidence of novelty.
 .SH OPTIONS
+.TP
+.BR \--space " " name
+Search
+.B square
+or
+.BR binary-square .
+The default is
+.BR square .
+.TP
+.BR \--candidate " " index
+Select a zero-based canonical survivor to render or classify.
+The default is 0.
+.TP
+.B \--list-candidates
+Write deterministic tab-separated search statistics and every survivor with
+its exact executable-bank match, if any.
 .TP
 .BR \-c ", " \-\-colour " " scheme
 Select
@@ -49,8 +78,8 @@ This option may not be used with rule output.
 Render the discovered substitution rule instead of a finite patch.
 .TP
 .BR \-k ", " \-\-classify
-Write a text classification of the survivor against the encoded known-rule
-bank instead of rendering PDF.
+Write a text classification of the selected survivor against the encoded
+known-rule bank instead of rendering PDF.
 .TP
 .BR \-l ", " \-\-list-known
 List the local system id, Encyclopedia record, and source URL for every
@@ -74,12 +103,24 @@ Render the rule found by the same search:
 aper-search --rule > square-rule.pdf
 .EE
 .PP
-Inspect the executable bank and classify the square control:
+Exhaust the binary square space, inspect its 27 canonical survivors, and
+render survivor 22:
+.PP
+.EX
+aper-search --space binary-square --list-candidates
+aper-search --space binary-square --candidate 22 > candidate.pdf
+aper-search --space binary-square --candidate 22 --rule > candidate-rule.pdf
+.EE
+.PP
+Inspect the executable bank and classify that survivor:
 .PP
 .EX
 aper-search --list-known
-aper-search --classify
+aper-search --space binary-square --candidate 22 --classify
 .EE
+.PP
+Survivor 22 is an exact rediscovery of the encoded two-dimensional Thue-Morse
+rule.  Other unmatched survivors remain candidates rather than novelty claims.
 .SH FILES
 .TP
 .I PREFIX/share/aper/encyclopedia.tsv
@@ -92,7 +133,7 @@ Attribution, licence, and transformation notice for the reference index.
 .SH EXIT STATUS
 .B aper-search
 exits zero after writing the requested PDF, classification, or bank listing.
-It exits non-zero if its arguments are invalid, the search invariant fails,
-or output cannot be written.
+It exits non-zero if its arguments or candidate index are invalid, the search
+invariant fails, or output cannot be written.
 .SH SEE ALSO
 .BR aper (1)

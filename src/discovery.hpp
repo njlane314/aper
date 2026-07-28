@@ -66,11 +66,20 @@ class CandidateSource {
 
     virtual ~CandidateSource() = default;
     virtual void enumerate(const Visitor& visit) const = 0;
+    virtual std::string canonicalise(const TilingSystem& candidate,
+                                     double tolerance) const;
 };
 
 class SquareLatticeSearch final : public CandidateSource {
   public:
     void enumerate(const Visitor& visit) const override;
+};
+
+class BinarySquareSearch final : public CandidateSource {
+  public:
+    void enumerate(const Visitor& visit) const override;
+    std::string canonicalise(const TilingSystem& candidate,
+                             double tolerance) const override;
 };
 
 struct DiscoveryOptions {

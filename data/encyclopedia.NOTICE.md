@@ -3,7 +3,7 @@
 `encyclopedia.tsv` is a metadata-only snapshot derived from the
 [Tilings Encyclopedia substitution index](https://tilings.math.uni-bielefeld.de/substitution/).
 It contains page titles, slugs and page URLs recorded by that snapshot,
-classification labels, and six locally authored `aper` system mappings. It does
+classification labels, and seven locally authored `aper` system mappings. It does
 not contain the site's prose, images, or substitution geometry. A `-` in the
 `aper_system` column denotes a reference-only record.
 

@@ -45,4 +45,21 @@ KnownTilingBank::classify(const TilingSystem& candidate) const {
     return matches;
 }
 
+std::vector<KnownTilingMatch>
+KnownTilingBank::classify(const TilingSystem& candidate,
+                          const CandidateSource& source) const {
+    const auto key = source.canonicalise(candidate, tolerance_);
+    std::vector<KnownTilingMatch> matches;
+    for (const auto* system : systems_) {
+        try {
+            if (source.canonicalise(*system, tolerance_) == key) {
+                matches.push_back({KnownMatchKind::exact_rule, system});
+            }
+        } catch (const std::invalid_argument&) {
+            // A source-specific equivalence need not accept unrelated systems.
+        }
+    }
+    return matches;
+}
+
 } // namespace aper

@@ -1,0 +1,193 @@
+\documentclass[10pt]{article}
+
+\ifdefined\pdfminorversion
+  \pdfminorversion=7
+\fi
+\ifdefined\pdfinfoomitdate
+  \pdfinfoomitdate=1
+\fi
+\ifdefined\pdftrailerid
+  \pdftrailerid{}
+\fi
+\ifdefined\pdfsuppressptexinfo
+  \pdfsuppressptexinfo=15
+\fi
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[a4paper,landscape,margin=15mm,headheight=14pt]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage[hidelinks,unicode]{hyperref}
+
+\definecolor{aperink}{HTML}{10161B}
+\definecolor{apergrey}{HTML}{59636B}
+\definecolor{apernative}{HTML}{1E5A88}
+\definecolor{aperreference}{HTML}{8B4E1E}
+\definecolor{apermissing}{HTML}{6B6B6B}
+
+\hypersetup{
+  pdftitle={aper catalogue of substitution tilings and search candidates},
+  pdfauthor={aper contributors},
+  pdfsubject={Reproducible substitution-rule, patch, and reference catalogue},
+  pdfcreator={pdfLaTeX and aper}
+}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\setlength{\LTpre}{0.4em}
+\setlength{\LTpost}{0.4em}
+\setlength{\tabcolsep}{5pt}
+\setlength{\emergencystretch}{2em}
+\urlstyle{same}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textsc{aper catalogue}}
+\fancyhead[R]{\small\nouppercase{\leftmark}}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.35pt}
+
+\newcommand{\CatalogueStatus}[2]{%
+  {\small\textcolor{#1}{\textsc{#2}}}%
+}
+
+\newcommand{\CatalogueArtwork}[3]{%
+  {\large\textsc{#1}\par}%
+  \vspace{0.45em}%
+  \includegraphics[width=\linewidth,height=0.50\textheight,keepaspectratio]{#2}\par
+  \vspace{0.35em}%
+  {\scriptsize\raggedright #3\par}%
+}
+
+\newcommand{\CataloguePlaceholder}[2]{%
+  {\large\textsc{#1}\par}%
+  \vspace{0.45em}%
+  \fbox{%
+    \parbox[c][0.50\textheight][c]{0.92\linewidth}{%
+      \centering\color{apermissing}\large #2%
+    }%
+  }\par
+  \vspace{0.35em}%
+  {\scriptsize\color{apermissing}missing\par}%
+}
+
+% anchor, title, status, source, tags, changes, patch block, rule block
+\newcommand{\CataloguePlate}[8]{%
+  \clearpage
+  \phantomsection
+  \pdfbookmark[1]{#2}{plate:#1}%
+  \markboth{#2}{#2}%
+  {\centering
+    {\LARGE\bfseries\color{aperink} #2\par}%
+    \vspace{0.25em}%
+    #3\par
+  }
+  \vspace{0.65em}%
+  \noindent
+  \begin{minipage}[t]{0.485\textwidth}
+    \centering #7
+  \end{minipage}%
+  \hfill
+  \begin{minipage}[t]{0.485\textwidth}
+    \centering #8
+  \end{minipage}
+  \vfill
+  \hrule
+  \vspace{0.35em}%
+  {\scriptsize\raggedright
+    \textbf{Source:} #4\quad
+    \textbf{Tags:} #5\par
+    \textbf{Changes and scope:} #6\par
+  }%
+}
+
+\input{build-info.tex}
+
+\begin{document}
+
+\begin{titlepage}
+  \thispagestyle{empty}
+  \vspace*{0.11\textheight}
+  {\Huge\bfseries\color{aperink} aper\par}
+  \vspace{0.6em}
+  {\LARGE A catalogue of substitution tilings and bounded-search candidates\par}
+  \vspace{1.5em}
+  {\large
+    \CatalogueBankCount\ Encyclopedia records
+    \quad$\cdot$\quad
+    \CatalogueNativeCount\ local encodings
+    \quad$\cdot$\quad
+    \CatalogueCandidateCount\ search candidates\par
+  }
+  \vfill
+  \begin{minipage}{0.82\textwidth}
+    This document is generated offline from the reviewed metadata snapshot,
+    locally executable rules, and a checksummed reference-art manifest. A
+    plate labelled \emph{reference only} is not an executable rule in
+    \texttt{aper}. A search survivor is a candidate, not evidence of novelty
+    or aperiodicity.
+
+    \medskip
+    Generated with \texttt{\CatalogueAperVersion}. Encyclopedia snapshot:
+    \CatalogueSnapshotDate.
+  \end{minipage}
+  \vfill
+  {\small\color{apergrey}
+    D. Frettlöh, F. Gähler, E. Harriss,
+    \emph{Tilings Encyclopedia},
+    \url{https://tilings.math.uni-bielefeld.de/}.\par
+  }
+\end{titlepage}
+
+\section*{Method and status}
+\markboth{Method and status}{Method and status}
+
+The \CatalogueNativeCount\ \emph{native} records are rendered directly by
+\texttt{aper} from
+locally encoded \texttt{TilingSystem} objects. Their rule panels contain every
+encoded prototile replacement; their patch panels use the fixed seed, depth,
+and colour recorded in \texttt{doc/catalogue/systems.tsv}. Structural validity
+does not imply that every presentation rule is a disjoint literal polygon
+partition.
+
+The remaining bank records are \emph{reference only}. Their metadata and any
+available patch or rule artwork come from the Tilings Encyclopedia snapshot
+and reference-art manifest. They have not been reconstructed, geometrically
+validated, or classified by \texttt{aper}. Missing artwork is printed as an
+explicit placeholder; in particular, a missing rule image does not mean that
+no mathematical rule exists.
+
+The bounded binary-square search enumerates, validates, canonicalises, and
+deduplicates a finite search space. Exact-bank comparison covers only the
+local encodings and only canonical rule equality. It does not detect broader
+equivalences such as MLD, nor establish novelty, nonperiodicity, or
+aperiodicity.
+
+\section*{Reproducibility and licence}
+
+The catalogue build performs no network access. Source files are copied to
+sanitised generated paths, their SHA-256 values are verified, and any media
+conversion is stated on its plate. The exact native rendering command is also
+printed beneath each local image. The source metadata report
+\CatalogueReferencePatchCount\ patch images and
+\CatalogueReferenceRuleCount\ rule images available for reference-only
+records; all other panels are labelled missing.
+
+The Encyclopedia-derived metadata and reference artwork are licensed under
+\href{https://creativecommons.org/licenses/by-nc-sa/2.0/}{CC BY-NC-SA 2.0}.
+Whitespace normalisation, sorting, URL construction, local identifier mapping,
+media conversion where stated, scaling, and composition into this catalogue
+are changes. This compiled catalogue is distributed under CC BY-NC-SA 2.0;
+the independently authored \texttt{aper} software remains ISC-licensed.
+
+\input{search-comparison.tex}
+\input{plates.tex}
+
+\end{document}

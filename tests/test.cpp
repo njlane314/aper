@@ -15,6 +15,7 @@
 #include <limits>
 #include <numbers>
 #include <numeric>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -197,6 +198,29 @@ aper::TilingSystem make_typed_square_system(bool relabelled, bool reflected = fa
     };
 }
 
+aper::TilingSystem make_triangular_binary_system() {
+    auto first = square_quarters();
+    auto second = square_quarters();
+    constexpr std::array<aper::PrototileId, 4> first_pattern{0, 1, 1, 0};
+    constexpr std::array<aper::PrototileId, 4> second_pattern{1, 0, 0, 1};
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        first[i].prototile = first_pattern[i];
+        second[i].prototile = second_pattern[i];
+    }
+    const std::vector<aper::Point> triangle{{0.0, 0.0}, {1.0, 0.0}, {0.0, 1.0}};
+    return {
+        {"triangular-binary", "Triangular binary", {}, "a", {1, 4, 7}},
+        {{0, "a", aper::Shape::generic_polygon, triangle, 0},
+         {1, "b", aper::Shape::generic_polygon, triangle, aper::maximum_fill}},
+        aper::SubstitutionRule{
+            2.0,
+            {{0, aper::Patch{std::move(first)}}, {1, aper::Patch{std::move(second)}}}},
+        {{"a", aper::Patch{{aper::Placement{0, {}}}}, 1},
+         {"b", aper::Patch{{aper::Placement{1, {}}}}, 1}},
+        aper::identity_projector(),
+    };
+}
+
 class DuplicateSquareSource final : public aper::CandidateSource {
   public:
     void enumerate(const Visitor& visit) const override {
@@ -351,10 +375,15 @@ void test_p1_substitution() {
 
 void test_substitution_systems() {
     const auto& catalogue = aper::tiling_catalogue();
-    CHECK(catalogue.systems().size() == 6);
-    constexpr std::array<std::string_view, 6> source_records{
-        "penrose-pentagon-boat-star",    "penrose-kite-dart", "penrose-rhomb",
-        "ammann-beenker-rhomb-triangle", "pinwheel",          "stampflis-12-fold-1",
+    CHECK(catalogue.systems().size() == 7);
+    constexpr std::array<std::string_view, 7> source_records{
+        "penrose-pentagon-boat-star",
+        "penrose-kite-dart",
+        "penrose-rhomb",
+        "ammann-beenker-rhomb-triangle",
+        "pinwheel",
+        "stampflis-12-fold-1",
+        "thue-morse-2d",
     };
     for (std::size_t i = 0;
          i < std::min(catalogue.systems().size(), source_records.size()); ++i) {
@@ -381,6 +410,8 @@ void test_substitution_systems() {
     CHECK(catalogue.find("ab") == &aper::tiling_system(aper::Tiling::ammann_beenker));
     CHECK(catalogue.find("stampfli-12-fold-1") ==
           &aper::tiling_system(aper::Tiling::stampfli));
+    CHECK(catalogue.find("thue-morse-2d") == &catalogue.systems().back());
+    CHECK(catalogue.find("thue-morse") == &catalogue.systems().back());
     CHECK(catalogue.find("unknown") == nullptr);
 
     for (const auto& system : catalogue.systems()) {
@@ -424,6 +455,41 @@ void test_substitution_systems() {
         rejected_unrenderable_depth = true;
     }
     CHECK(rejected_unrenderable_depth);
+
+    const auto& thue_morse = catalogue.get("thue-morse-2d");
+    CHECK(thue_morse.spec().name == "Thue-Morse 2D");
+    CHECK(thue_morse.prototiles().size() == 2);
+    CHECK(thue_morse.rule().inflation() == 2.0);
+    CHECK(thue_morse.rule().incidence_matrix(2) ==
+          aper::IncidenceMatrix({{2, 2}, {2, 2}}));
+    constexpr std::array<aper::PrototileId, 4> first_pattern{0, 1, 1, 0};
+    constexpr std::array<aper::PrototileId, 4> second_pattern{1, 0, 0, 1};
+    for (std::size_t i = 0; i < first_pattern.size(); ++i) {
+        CHECK(thue_morse.rule().replacement(0).placements()[i].prototile ==
+              first_pattern[i]);
+        CHECK(thue_morse.rule().replacement(1).placements()[i].prototile ==
+              second_pattern[i]);
+    }
+    CHECK(thue_morse.generate_raw("a", 3).size() == 64);
+    CHECK(thue_morse.generate_raw("b", 3).size() == 64);
+    CHECK((aper::GeometricValidator{{1.0e-9, 3, 512}}.validate(thue_morse).valid()));
+    const auto thue_morse_rules = aper::RuleView{thue_morse}.drawing();
+    CHECK(thue_morse_rules.polygons().size() == 10);
+    CHECK(thue_morse_rules.arrows().size() == 2);
+    CHECK(thue_morse_rules.metadata().title == "Thue-Morse 2D substitution rule");
+    const auto thue_morse_patch = aper::PatchView{thue_morse, "a", 3}.drawing();
+    CHECK(!thue_morse_patch.empty());
+    CHECK(thue_morse_patch.polygons().size() <= 64);
+    CHECK(close(thue_morse_patch.viewport().aspect_ratio(), 4.0 / 3.0));
+    bool has_a_fill = false;
+    bool has_b_fill = false;
+    for (const auto& polygon : thue_morse_patch.polygons()) {
+        has_a_fill |= polygon.fill.fill() == 0;
+        has_b_fill |= polygon.fill.fill() == aper::maximum_fill;
+    }
+    CHECK(has_a_fill);
+    CHECK(has_b_fill);
+    CHECK(thue_morse_patch.arrows().empty());
 
     auto grid = make_square_system("grid", square_quarters());
     CHECK(grid.generate_raw("square", 2).size() == 16);
@@ -563,7 +629,7 @@ void test_discovery() {
         aper::GeometricValidator{{1.0e-8, 3, 256}}.validate(known_penrose);
     CHECK(known_penrose_report.valid());
     const aper::KnownTilingBank known_bank{aper::tiling_catalogue()};
-    CHECK(known_bank.systems().size() == 6);
+    CHECK(known_bank.systems().size() == 7);
     const auto known_matches = known_bank.classify(known_penrose);
     CHECK(known_matches.size() == 1);
     if (!known_matches.empty()) {
@@ -603,7 +669,7 @@ void test_discovery() {
     CHECK(discovery.candidates.size() == 1);
     if (!discovery.candidates.empty()) {
         CHECK(discovery.candidates.front().serialisation.starts_with(
-            "aper-candidate-v1|"));
+            "aper-candidate-v2|"));
     }
 
     const auto deduplicated =
@@ -676,7 +742,7 @@ void test_discovery() {
         aper::identity_projector(),
     };
     CHECK(many_types.validate().empty());
-    CHECK(aper::canonical_key(many_types).starts_with("aper-candidate-v1|types=9|"));
+    CHECK(aper::canonical_key(many_types).starts_with("aper-candidate-v2|types=9|"));
 
     const auto bent_square = [](double scale) {
         std::vector<aper::Placement> placements;
@@ -783,6 +849,132 @@ void test_discovery() {
           std::string::npos);
     CHECK(first_pdf.str().find("nan") == std::string::npos);
     CHECK(first_pdf.str().find("inf") == std::string::npos);
+}
+
+void test_binary_square_search() {
+    const aper::BinarySquareSearch source;
+    const auto raw = collect(source);
+    CHECK(raw.size() == 256);
+    if (raw.size() != 256) {
+        return;
+    }
+
+    CHECK(raw.front().spec().id == "binary-square-00-00");
+    CHECK(raw.back().spec().id == "binary-square-15-15");
+    const auto& at = [&](unsigned first, unsigned second) -> const aper::TilingSystem& {
+        return raw[static_cast<std::size_t>(16 * first + second)];
+    };
+
+    std::size_t visited = 0;
+    source.enumerate([&](aper::TilingSystem) {
+        ++visited;
+        return visited < 17;
+    });
+    CHECK(visited == 17);
+
+    const auto reference = source.canonicalise(at(1, 3), 1.0e-9);
+    constexpr std::array<std::array<unsigned, 2>, 8> symmetric_rules{{
+        {{1, 3}},
+        {{2, 10}},
+        {{8, 12}},
+        {{4, 5}},
+        {{2, 3}},
+        {{4, 12}},
+        {{1, 5}},
+        {{8, 10}},
+    }};
+    for (const auto& masks : symmetric_rules) {
+        CHECK(source.canonicalise(at(masks[0], masks[1]), 1.0e-9) == reference);
+    }
+    CHECK(source.canonicalise(at(12, 14), 1.0e-9) == reference);
+    CHECK(source.canonicalise(at(1, 10), 1.0e-9) != reference);
+    CHECK(aper::canonical_key(at(1, 3), 1.0e-9) !=
+          aper::canonical_key(at(1, 10), 1.0e-9));
+
+    const auto thue_morse = source.canonicalise(at(6, 9), 1.0e-9);
+    const auto parent_forgetting = source.canonicalise(at(6, 6), 1.0e-9);
+    CHECK(thue_morse != parent_forgetting);
+    CHECK(source.canonicalise(at(9, 6), 1.0e-9) == thue_morse);
+    CHECK(aper::canonical_key(at(9, 6), 1.0e-9) ==
+          aper::canonical_key(at(6, 9), 1.0e-9));
+    CHECK(at(6, 9).rule().incidence_matrix(2) ==
+          aper::IncidenceMatrix({{2, 2}, {2, 2}}));
+    CHECK(at(6, 6).rule().incidence_matrix(2) ==
+          aper::IncidenceMatrix({{2, 2}, {2, 2}}));
+    const auto triangular = make_triangular_binary_system();
+    CHECK(triangular.validate().empty());
+    bool rejected_non_square = false;
+    try {
+        (void)source.canonicalise(triangular, 1.0e-9);
+    } catch (const std::invalid_argument&) {
+        rejected_non_square = true;
+    }
+    CHECK(rejected_non_square);
+
+    const aper::DiscoveryOptions options{{1.0e-9, 3, 512}, 256, 64, true};
+    const aper::DiscoveryEngine engine{options};
+    const auto first = engine.run(source);
+    const auto second = engine.run(source);
+    CHECK(first.statistics.generated == 256);
+    CHECK(first.statistics.structurally_valid == 256);
+    CHECK(first.statistics.algebraically_valid == 224);
+    CHECK(first.statistics.geometrically_valid == 224);
+    CHECK(first.statistics.canonicalised == 224);
+    CHECK(first.statistics.unique == 27);
+    CHECK(first.candidates.size() == 27);
+    CHECK(second.candidates.size() == first.candidates.size());
+
+    std::set<std::string> serialisations;
+    const aper::GeometricValidator validator{{1.0e-9, 3, 512}};
+    for (std::size_t i = 0; i < first.candidates.size(); ++i) {
+        const auto& candidate = first.candidates[i];
+        CHECK(candidate.serialisation.starts_with("aper-binary-square-v1|"));
+        CHECK(serialisations.insert(candidate.serialisation).second);
+        CHECK(
+            aper::incidence_is_primitive(candidate.system.rule().incidence_matrix(2)));
+        CHECK(validator.validate(candidate.system).valid());
+        CHECK(source.canonicalise(candidate.system, 1.0e-9) == candidate.serialisation);
+        if (i < second.candidates.size()) {
+            CHECK(second.candidates[i].serialisation == candidate.serialisation);
+            CHECK(second.candidates[i].system.spec().id == candidate.system.spec().id);
+        }
+    }
+    CHECK(serialisations.size() == 27);
+    CHECK(serialisations.contains(thue_morse));
+    CHECK(serialisations.contains(parent_forgetting));
+
+    const auto thue_candidate = std::find_if(
+        first.candidates.begin(), first.candidates.end(), [](const auto& value) {
+            return value.system.spec().id == "binary-square-06-09";
+        });
+    const auto forgetting_candidate = std::find_if(
+        first.candidates.begin(), first.candidates.end(), [](const auto& value) {
+            return value.system.spec().id == "binary-square-06-06";
+        });
+    CHECK(thue_candidate != first.candidates.end());
+    CHECK(forgetting_candidate != first.candidates.end());
+    const aper::KnownTilingBank bank{aper::tiling_catalogue()};
+    if (thue_candidate != first.candidates.end()) {
+        const auto source_matches = bank.classify(thue_candidate->system, source);
+        const auto generic_matches = bank.classify(thue_candidate->system);
+        CHECK(source_matches.size() == 1);
+        CHECK(generic_matches.size() == 1);
+        if (!source_matches.empty()) {
+            CHECK(source_matches.front().kind == aper::KnownMatchKind::exact_rule);
+            CHECK(source_matches.front().system ==
+                  &aper::tiling_catalogue().get("thue-morse-2d"));
+        }
+    }
+    const auto reframed_matches = bank.classify(at(9, 6), source);
+    CHECK(reframed_matches.size() == 1);
+    if (!reframed_matches.empty()) {
+        CHECK(reframed_matches.front().system ==
+              &aper::tiling_catalogue().get("thue-morse-2d"));
+    }
+    if (forgetting_candidate != first.candidates.end()) {
+        CHECK(bank.classify(forgetting_candidate->system).empty());
+        CHECK(bank.classify(forgetting_candidate->system, source).empty());
+    }
 }
 
 void check_seed(const SeedFixture& fixture) {
@@ -1432,6 +1624,7 @@ void test_patch_and_rule_views() {
 int main() {
     test_substitution_systems();
     test_discovery();
+    test_binary_square_search();
     test_seed_counts_and_area();
     test_p1_substitution();
     test_p2_vertex_seeds();

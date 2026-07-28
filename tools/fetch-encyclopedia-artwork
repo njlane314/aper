@@ -1,0 +1,647 @@
+#!/usr/bin/env python3
+
+"""Fetch a cached, attributed snapshot of Tilings Encyclopedia artwork."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime
+import email.utils
+import hashlib
+import io
+import json
+import mimetypes
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from html.parser import HTMLParser
+from typing import Optional
+
+
+REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
+DEFAULT_BANK = REPOSITORY / "data" / "encyclopedia.tsv"
+DEFAULT_CACHE = REPOSITORY / ".cache" / "encyclopedia"
+DEFAULT_ASSET_DIR = REPOSITORY / ".build" / "catalogue" / "reference"
+DEFAULT_OUTPUT = REPOSITORY / ".build" / "catalogue" / "reference-assets.tsv"
+ORIGIN = "https://tilings.math.uni-bielefeld.de"
+LICENCE = "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+USER_AGENT = (
+    "aper-encyclopedia-artwork/0.8 "
+    "(+https://github.com/njlane314/aper; cached, read-only fetch)"
+)
+MINIMUM_REQUEST_SPACING = 0.25
+MAXIMUM_ATTEMPTS = 4
+
+
+class ArtworkError(RuntimeError):
+    pass
+
+
+def normalise(text: str) -> str:
+    return " ".join(text.split())
+
+
+@dataclass(frozen=True)
+class DetailAssets:
+    patch: str
+    rule: Optional[str]
+    vector_patch: Optional[str]
+
+
+class DetailParser(HTMLParser):
+    headings = {
+        "Substitution Rule": ("rule", "Rule "),
+        "Patch": ("patch", "Patch "),
+        "Dual Substitution Rule": ("rule", "Dual Rule "),
+        "Dual Patch": ("patch", "Dual Patch "),
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.patch: Optional[str] = None
+        self.rule: Optional[str] = None
+        self.vector_links: list[str] = []
+        self.licence_seen = False
+        self.in_footer = False
+        self.heading_text: Optional[list[str]] = None
+        self.waiting_for_image: Optional[tuple[str, str]] = None
+        self.link_href: Optional[str] = None
+        self.link_text: Optional[list[str]] = None
+
+    def handle_starttag(
+        self, tag: str, attributes: list[tuple[str, Optional[str]]]
+    ) -> None:
+        attrs = {name.lower(): value or "" for name, value in attributes}
+        if tag == "footer":
+            self.in_footer = True
+        if tag == "h3":
+            self.heading_text = []
+            self.waiting_for_image = None
+        elif tag == "img" and self.waiting_for_image is not None:
+            kind, expected_alt = self.waiting_for_image
+            source = attrs.get("src", "")
+            alt = attrs.get("alt", "")
+            if not source or not alt.startswith(expected_alt):
+                raise ArtworkError(
+                    f"{kind} image does not have the expected {expected_alt!r} alt text"
+                )
+            if getattr(self, kind) is not None:
+                raise ArtworkError(f"page contains more than one {kind} image")
+            setattr(self, kind, source)
+            self.waiting_for_image = None
+        elif tag == "a":
+            href = attrs.get("href", "")
+            if self.in_footer and href == LICENCE:
+                self.licence_seen = True
+            self.link_href = href
+            self.link_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self.heading_text is not None:
+            self.heading_text.append(data)
+        if self.link_text is not None:
+            self.link_text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "h3" and self.heading_text is not None:
+            heading = normalise("".join(self.heading_text))
+            self.waiting_for_image = self.headings.get(heading)
+            self.heading_text = None
+        elif tag == "a" and self.link_text is not None:
+            text = normalise("".join(self.link_text))
+            if text.lower().startswith("download vectorformat"):
+                if not self.link_href:
+                    raise ArtworkError("vectorformat link has no URL")
+                self.vector_links.append(self.link_href)
+            self.link_href = None
+            self.link_text = None
+        elif tag == "footer":
+            self.in_footer = False
+
+
+def parse_detail(document: str) -> DetailAssets:
+    parser = DetailParser()
+    parser.feed(document)
+    parser.close()
+    if not parser.licence_seen:
+        raise ArtworkError("page does not advertise CC BY-NC-SA 2.0 in its footer")
+    if parser.patch is None:
+        raise ArtworkError("page has no Patch or Dual Patch image")
+    if len(parser.vector_links) > 1:
+        raise ArtworkError("page contains more than one vectorformat link")
+    return DetailAssets(
+        patch=parser.patch,
+        rule=parser.rule,
+        vector_patch=parser.vector_links[0] if parser.vector_links else None,
+    )
+
+
+@dataclass(frozen=True)
+class BankEntry:
+    slug: str
+    page_url: str
+
+
+def read_bank(path: pathlib.Path) -> list[BankEntry]:
+    with path.open(encoding="utf-8", newline="") as source:
+        lines = [line for line in source if not line.startswith("#")]
+    reader = csv.DictReader(lines, delimiter="\t")
+    required = {"slug", "url"}
+    if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+        raise ArtworkError("bank must contain slug and url columns")
+
+    entries: list[BankEntry] = []
+    seen: set[str] = set()
+    for row in reader:
+        slug = row["slug"]
+        page_url = row["url"]
+        if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", slug) is None:
+            raise ArtworkError(f"invalid bank slug: {slug}")
+        expected_url = f"{ORIGIN}/substitution/{slug}/"
+        if page_url != expected_url:
+            raise ArtworkError(f"non-canonical page URL for {slug}: {page_url}")
+        if slug in seen:
+            raise ArtworkError(f"duplicate bank slug: {slug}")
+        seen.add(slug)
+        entries.append(BankEntry(slug, page_url))
+    if not entries:
+        raise ArtworkError("bank contains no records")
+    return sorted(entries, key=lambda entry: entry.slug)
+
+
+@dataclass(frozen=True)
+class Response:
+    body: bytes
+    media_type: str
+    charset: str
+    final_url: str
+
+
+def retry_delay(value: Optional[str], fallback: float) -> float:
+    if value:
+        try:
+            return min(30.0, max(0.0, float(value)))
+        except ValueError:
+            try:
+                when = email.utils.parsedate_to_datetime(value)
+                now = datetime.datetime.now(datetime.timezone.utc)
+                return min(30.0, max(0.0, (when - now).total_seconds()))
+            except (TypeError, ValueError, OverflowError):
+                pass
+    return fallback
+
+
+class GentleFetcher:
+    def __init__(self) -> None:
+        self.last_request = 0.0
+
+    def pace(self) -> None:
+        remaining = MINIMUM_REQUEST_SPACING - (time.monotonic() - self.last_request)
+        if remaining > 0.0:
+            time.sleep(remaining)
+        self.last_request = time.monotonic()
+
+    def get(self, url: str) -> Response:
+        for attempt in range(MAXIMUM_ATTEMPTS):
+            self.pace()
+            request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    return Response(
+                        response.read(),
+                        response.headers.get_content_type(),
+                        response.headers.get_content_charset() or "utf-8",
+                        response.geturl(),
+                    )
+            except urllib.error.HTTPError as error:
+                if error.code != 429 and error.code < 500:
+                    raise ArtworkError(
+                        f"HTTP {error.code} while fetching {url}"
+                    ) from error
+                if attempt + 1 == MAXIMUM_ATTEMPTS:
+                    raise ArtworkError(
+                        f"HTTP {error.code} after {MAXIMUM_ATTEMPTS} attempts: {url}"
+                    ) from error
+                delay = retry_delay(
+                    error.headers.get("Retry-After"), float(2**attempt)
+                )
+                time.sleep(delay)
+            except urllib.error.URLError as error:
+                if attempt + 1 == MAXIMUM_ATTEMPTS:
+                    raise ArtworkError(
+                        f"network failure after {MAXIMUM_ATTEMPTS} attempts: {url}"
+                    ) from error
+                time.sleep(float(2**attempt))
+        raise AssertionError("unreachable retry loop")
+
+
+def atomic_write(path: pathlib.Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as temporary:
+        temporary.write(content)
+        temporary_path = pathlib.Path(temporary.name)
+    os.chmod(temporary_path, 0o644)
+    os.replace(temporary_path, path)
+
+
+@dataclass(frozen=True)
+class CachedResource:
+    path: pathlib.Path
+    media_type: str
+    charset: str
+    final_url: str
+
+
+class ResourceCache:
+    def __init__(
+        self,
+        root: pathlib.Path,
+        fetcher: GentleFetcher,
+        offline: bool,
+        refresh: bool,
+    ) -> None:
+        self.root = root
+        self.fetcher = fetcher
+        self.offline = offline
+        self.refresh = refresh
+
+    def page(self, entry: BankEntry) -> CachedResource:
+        return self.resource(
+            entry.page_url,
+            self.root / "pages" / f"{entry.slug}.html",
+            self.root / "pages" / f"{entry.slug}.json",
+        )
+
+    def asset(self, url: str) -> CachedResource:
+        digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+        suffix = pathlib.PurePosixPath(urllib.parse.urlsplit(url).path).suffix.lower()
+        return self.resource(
+            url,
+            self.root / "assets" / f"{digest}{suffix}",
+            self.root / "assets" / f"{digest}.json",
+        )
+
+    def resource(
+        self, url: str, data_path: pathlib.Path, metadata_path: pathlib.Path
+    ) -> CachedResource:
+        if not self.refresh and data_path.is_file() and metadata_path.is_file():
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if metadata.get("source_url") == url:
+                try:
+                    media_type = str(metadata["media_type"])
+                    expected_digest = str(metadata["sha256"])
+                except (KeyError, TypeError) as error:
+                    raise ArtworkError(
+                        f"invalid cache metadata: {metadata_path}"
+                    ) from error
+                if sha256_file(data_path) != expected_digest:
+                    raise ArtworkError(f"cached content failed its checksum: {url}")
+                return CachedResource(
+                    data_path,
+                    media_type,
+                    str(metadata.get("charset", "utf-8")),
+                    str(metadata.get("final_url", url)),
+                )
+        if self.offline:
+            raise ArtworkError(f"offline cache miss: {url}")
+
+        response = self.fetcher.get(url)
+        is_asset = "/img/" in urllib.parse.urlsplit(url).path
+        validate_remote_url(response.final_url, asset=is_asset)
+        atomic_write(data_path, response.body)
+        metadata = {
+            "charset": response.charset,
+            "final_url": response.final_url,
+            "media_type": response.media_type,
+            "sha256": hashlib.sha256(response.body).hexdigest(),
+            "source_url": url,
+        }
+        atomic_write(
+            metadata_path,
+            (json.dumps(metadata, sort_keys=True) + "\n").encode("utf-8"),
+        )
+        return CachedResource(
+            data_path, response.media_type, response.charset, response.final_url
+        )
+
+
+def validate_remote_url(url: str, asset: bool) -> None:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or parsed.netloc != "tilings.math.uni-bielefeld.de":
+        raise ArtworkError(f"refusing non-Encyclopedia URL: {url}")
+    expected_prefix = "/img/" if asset else "/substitution/"
+    if not parsed.path.startswith(expected_prefix):
+        raise ArtworkError(f"unexpected Encyclopedia URL path: {url}")
+    if parsed.query or parsed.fragment:
+        raise ArtworkError(f"unexpected query or fragment in asset URL: {url}")
+
+
+def resolve_asset(page_url: str, reference: str) -> str:
+    url = urllib.parse.urljoin(page_url, reference)
+    validate_remote_url(url, asset=True)
+    return url
+
+
+def canonical_media_type(media_type: str, url: str) -> str:
+    aliases = {"image/jpg": "image/jpeg", "application/x-pdf": "application/pdf"}
+    media_type = aliases.get(media_type.lower(), media_type.lower())
+    supported = {
+        "application/pdf",
+        "image/gif",
+        "image/jpeg",
+        "image/png",
+        "image/svg+xml",
+    }
+    if media_type in supported:
+        return media_type
+    guessed = mimetypes.guess_type(urllib.parse.urlsplit(url).path)[0]
+    guessed = aliases.get((guessed or "").lower(), (guessed or "").lower())
+    if guessed in supported:
+        return guessed
+    raise ArtworkError(f"unsupported media type {media_type!r}: {url}")
+
+
+@dataclass(frozen=True)
+class OutputFormat:
+    extension: str
+    media_type: str
+    converter: Optional[str]
+
+
+def output_format(media_type: str) -> OutputFormat:
+    formats = {
+        "application/pdf": OutputFormat(".pdf", "application/pdf", None),
+        "image/png": OutputFormat(".png", "image/png", None),
+        "image/jpeg": OutputFormat(".jpg", "image/jpeg", None),
+        "image/gif": OutputFormat(".png", "image/png", "gif"),
+        "image/svg+xml": OutputFormat(".pdf", "application/pdf", "svg"),
+    }
+    return formats[media_type]
+
+
+def conversion_command(
+    kind: str, source: pathlib.Path, target: pathlib.Path
+) -> tuple[str, list[str]]:
+    if kind == "svg":
+        executable = shutil.which("rsvg-convert")
+        if executable:
+            return "rsvg-convert", [
+                executable,
+                "-f",
+                "pdf",
+                "-o",
+                str(target),
+                str(source),
+            ]
+        executable = shutil.which("inkscape")
+        if executable:
+            return "inkscape", [
+                executable,
+                str(source),
+                "--export-type=pdf",
+                f"--export-filename={target}",
+            ]
+        raise ArtworkError("SVG artwork requires rsvg-convert or inkscape")
+
+    if kind == "gif":
+        for name in ("magick", "convert"):
+            executable = shutil.which(name)
+            if executable:
+                return name, [executable, f"{source}[0]", str(target)]
+        executable = shutil.which("sips")
+        if executable:
+            return "sips", [
+                executable,
+                "-s",
+                "format",
+                "png",
+                str(source),
+                "--out",
+                str(target),
+            ]
+        raise ArtworkError("GIF artwork requires magick, convert, or sips")
+
+    raise ArtworkError(f"unknown artwork conversion kind: {kind}")
+
+
+def convert(source: pathlib.Path, target: pathlib.Path, kind: str) -> str:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        dir=target.parent, suffix=target.suffix, delete=False
+    ) as temporary:
+        temporary_path = pathlib.Path(temporary.name)
+    try:
+        converter, command = conversion_command(kind, source, temporary_path)
+        environment = dict(os.environ)
+        environment.update(
+            {
+                "LC_ALL": "C",
+                "LANG": "C",
+                "TZ": "UTC",
+                "SOURCE_DATE_EPOCH": "0",
+            }
+        )
+        result = subprocess.run(
+            command, capture_output=True, text=True, env=environment
+        )
+        failed = (
+            result.returncode != 0
+            or not temporary_path.is_file()
+            or temporary_path.stat().st_size == 0
+        )
+        if failed:
+            diagnostic = normalise(result.stderr or result.stdout)
+            raise ArtworkError(f"{converter} failed for {source}: {diagnostic}")
+        os.replace(temporary_path, target)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return converter
+
+
+def sha256_file(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def manifest_path(path: pathlib.Path) -> str:
+    try:
+        return path.resolve().relative_to(REPOSITORY).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+@dataclass(frozen=True)
+class LocalAsset:
+    url: str
+    path: str
+    sha256: str
+    media_type: str
+    note: str
+
+
+def materialise(
+    cache: ResourceCache,
+    asset_dir: pathlib.Path,
+    slug: str,
+    kind: str,
+    url: str,
+) -> LocalAsset:
+    cached = cache.asset(url)
+    media_type = canonical_media_type(cached.media_type, url)
+    format_ = output_format(media_type)
+    target = asset_dir / f"{slug}-{kind}{format_.extension}"
+    if format_.converter is None:
+        atomic_write(target, cached.path.read_bytes())
+        note = f"{media_type} copied without modification"
+    else:
+        converter = convert(cached.path, target, format_.converter)
+        source_name = "SVG" if media_type == "image/svg+xml" else "GIF"
+        target_name = "PDF" if format_.media_type == "application/pdf" else "PNG"
+        note = f"{source_name} converted to {target_name} with {converter}"
+    return LocalAsset(
+        url,
+        manifest_path(target),
+        sha256_file(target),
+        format_.media_type,
+        note,
+    )
+
+
+@dataclass(frozen=True)
+class ManifestRow:
+    slug: str
+    page_url: str
+    patch: LocalAsset
+    rule: Optional[LocalAsset]
+    changes: str
+
+
+MANIFEST_FIELDS = (
+    "slug",
+    "page_url",
+    "patch_url",
+    "patch_path",
+    "patch_sha256",
+    "patch_media",
+    "rule_url",
+    "rule_path",
+    "rule_sha256",
+    "rule_media",
+    "changes",
+)
+
+
+def render_manifest(rows: list[ManifestRow]) -> str:
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, delimiter="\t", lineterminator="\n")
+    writer.writerow(MANIFEST_FIELDS)
+    for row in sorted(rows, key=lambda item: item.slug):
+        rule_fields = (
+            (row.rule.url, row.rule.path, row.rule.sha256, row.rule.media_type)
+            if row.rule is not None
+            else ("-", "-", "-", "-")
+        )
+        fields = (
+            row.slug,
+            row.page_url,
+            row.patch.url,
+            row.patch.path,
+            row.patch.sha256,
+            row.patch.media_type,
+            *rule_fields,
+            row.changes,
+        )
+        if any(not field or "\t" in field or "\n" in field for field in fields):
+            raise ArtworkError(f"invalid manifest field in {row.slug}")
+        writer.writerow(fields)
+    return output.getvalue()
+
+
+def fetch_artwork(
+    entries: list[BankEntry], cache: ResourceCache, asset_dir: pathlib.Path
+) -> list[ManifestRow]:
+    rows: list[ManifestRow] = []
+    for entry in entries:
+        page = cache.page(entry)
+        if page.final_url.rstrip("/") != entry.page_url.rstrip("/"):
+            raise ArtworkError(
+                f"page redirected away from its canonical URL: {entry.page_url}"
+            )
+        try:
+            document = page.path.read_text(encoding=page.charset)
+        except (LookupError, UnicodeDecodeError) as error:
+            raise ArtworkError(f"cannot decode {entry.page_url}") from error
+        detail = parse_detail(document)
+
+        patch_reference = detail.vector_patch or detail.patch
+        patch_url = resolve_asset(entry.page_url, patch_reference)
+        patch = materialise(cache, asset_dir, entry.slug, "patch", patch_url)
+        patch_note = patch.note
+        if detail.vector_patch is not None:
+            patch_note = "vectorformat preferred; " + patch_note
+
+        rule: Optional[LocalAsset] = None
+        if detail.rule is not None:
+            rule_url = resolve_asset(entry.page_url, detail.rule)
+            rule = materialise(cache, asset_dir, entry.slug, "rule", rule_url)
+            rule_note = rule.note
+        else:
+            rule_note = "rule asset not supplied by source"
+        rows.append(
+            ManifestRow(
+                entry.slug,
+                entry.page_url,
+                patch,
+                rule,
+                f"patch: {patch_note}; rule: {rule_note}",
+            )
+        )
+    return rows
+
+
+def arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bank", type=pathlib.Path, default=DEFAULT_BANK)
+    parser.add_argument("--cache", type=pathlib.Path, default=DEFAULT_CACHE)
+    parser.add_argument("--asset-dir", type=pathlib.Path, default=DEFAULT_ASSET_DIR)
+    parser.add_argument("--output", type=pathlib.Path, default=DEFAULT_OUTPUT)
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
+        "--refresh", action="store_true", help="refetch pages and assets"
+    )
+    modes.add_argument(
+        "--offline", action="store_true", help="require every source in the cache"
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    options = arguments()
+    entries = read_bank(options.bank)
+    cache = ResourceCache(
+        options.cache, GentleFetcher(), options.offline, options.refresh
+    )
+    rows = fetch_artwork(entries, cache, options.asset_dir)
+    manifest = render_manifest(rows)
+    atomic_write(options.output, manifest.encode("utf-8"))
+    print(f"wrote {len(rows)} artwork references to {options.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (ArtworkError, OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"fetch-encyclopedia-artwork: {error}")

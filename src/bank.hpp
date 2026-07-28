@@ -10,6 +10,8 @@
 
 namespace aper {
 
+class CandidateSource;
+
 SourceReference encyclopedia_reference(std::string record);
 
 enum class KnownMatchKind {
@@ -29,6 +31,8 @@ class KnownTilingBank {
 
     std::span<const TilingSystem* const> systems() const { return systems_; }
     std::vector<KnownTilingMatch> classify(const TilingSystem& candidate) const;
+    std::vector<KnownTilingMatch> classify(const TilingSystem& candidate,
+                                           const CandidateSource& source) const;
 
   private:
     double tolerance_;

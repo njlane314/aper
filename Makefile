@@ -30,7 +30,8 @@ SEARCH_OBJECTS = $(BUILD)/search.o $(CORE_OBJECTS)
 OBJECTS = $(APER_OBJECTS) $(SEARCH_OBJECTS) $(BUILD)/test.o
 DEPS = $(sort $(OBJECTS:.o=.d))
 
-.PHONY: all check clean encyclopedia-bank install install-encyclopedia
+.PHONY: all catalogue catalogue-offline check clean encyclopedia-bank
+.PHONY: install install-encyclopedia
 
 all: $(PROGRAMS)
 
@@ -55,6 +56,9 @@ $(BUILD):
 check: $(PROGRAMS) $(BUILD)/aper-test
 	./$(BUILD)/aper-test
 	@tools/update-encyclopedia-bank --help >/dev/null
+	@tools/fetch-encyclopedia-artwork --help >/dev/null
+	@tools/build-catalogue --help >/dev/null
+	@python3 tests/test_fetch_encyclopedia_artwork.py >/dev/null
 	@test "$$(awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" { count++ } END { print count }' $(ENCYCLOPEDIA_BANK))" -ge 250
 	@test "$$(awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" { count++ } END { print count }' $(ENCYCLOPEDIA_BANK))" = \
 		"$$(awk '$$1 == "#" && $$2 == "records:" { print $$3 }' $(ENCYCLOPEDIA_BANK))"
@@ -63,12 +67,13 @@ check: $(PROGRAMS) $(BUILD)/aper-test
 		{ exit 1 }' $(ENCYCLOPEDIA_BANK)
 	@awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" { print $$1 }' \
 		$(ENCYCLOPEDIA_BANK) | LC_ALL=C sort -c
-	@test "$$(awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" && $$5 != "-" { count++ } END { print count }' $(ENCYCLOPEDIA_BANK))" -eq 6
+	@test "$$(awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" && $$5 != "-" { count++ } END { print count }' $(ENCYCLOPEDIA_BANK))" -eq 7
 	@test -z "$$(awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" { print $$1 }' \
 		$(ENCYCLOPEDIA_BANK) | sort | uniq -d)"
 	@./$(PROGRAM) -h | grep -q '^usage: aper'
 	@./$(PROGRAM) -h | grep -q 'ammann-beenker: Ammann-Beenker'
 	@./$(PROGRAM) -h | grep -q 'stampfli-12-fold-1'
+	@./$(PROGRAM) -h | grep -q 'thue-morse-2d: Thue-Morse 2D'
 	@./$(PROGRAM) -h | grep -q 'thin requires depth 2+'
 	@./$(PROGRAM) -h | grep -q -- '--rule'
 	@./$(PROGRAM) -V | grep -q '^aper 0\.8\.0$$'
@@ -77,7 +82,8 @@ check: $(PROGRAMS) $(BUILD)/aper-test
 	@./$(PROGRAM) -t ammann-beenker | grep -a -q '/Subject (octagon seed at depth 4;'
 	@./$(PROGRAM) -t pinwheel | grep -a -q '/Subject (triangle seed at depth 6;'
 	@./$(PROGRAM) -t stampfli | grep -a -q '/Subject (dodecagon seed at depth 2;'
-	@for tiling in p1 p2 p3 ammann-beenker pinwheel stampfli; do \
+	@./$(PROGRAM) -t thue-morse-2d | grep -a -q '/Subject (a seed at depth 4;'
+	@for tiling in p1 p2 p3 ammann-beenker pinwheel stampfli thue-morse-2d; do \
 		./$(PROGRAM) -t $$tiling --rule | grep -a -q '/Title (.* substitution rule)' || exit 1; \
 	done
 	@./$(PROGRAM) -t p1 -r | grep -a -q '%%EOF'
@@ -107,6 +113,7 @@ check: $(PROGRAMS) $(BUILD)/aper-test
 	@./$(PROGRAM) -t rhomb -n 1 | grep -a -q '/Title (P3 '
 	@./$(PROGRAM) -t ab -n 1 | grep -a -q '/Title (Ammann-Beenker '
 	@./$(PROGRAM) -t stampfli-12-fold-1 -n 1 | grep -a -q '/Title (Stampfli 12-fold 1 '
+	@./$(PROGRAM) -t thue-morse -n 1 | grep -a -q '/Title (Thue-Morse 2D '
 	@for scheme in flare grove electric tide; do \
 		./$(PROGRAM) -c $$scheme -n 1 | grep -a -q '%%EOF' || exit 1; \
 	done
@@ -154,6 +161,7 @@ check: $(PROGRAMS) $(BUILD)/aper-test
 	@./$(PROGRAM) -t ammann-beenker -n 7 2>&1 | grep -q 'Ammann-Beenker depth must be an integer from 1 to 6'
 	@./$(PROGRAM) -t pinwheel -n 9 2>&1 | grep -q 'Pinwheel depth must be an integer from 1 to 8'
 	@./$(PROGRAM) -t stampfli -n 4 2>&1 | grep -q 'Stampfli 12-fold 1 depth must be an integer from 1 to 3'
+	@./$(PROGRAM) -t thue-morse-2d -n 8 2>&1 | grep -q 'Thue-Morse 2D depth must be an integer from 1 to 7'
 	@if ./$(PROGRAM) -t p3 -s thin -n 1 >/dev/null 2>&1; then \
 		echo 'aper accepted an unrenderable thin seed depth' >&2; exit 1; \
 	fi
@@ -173,7 +181,7 @@ check: $(PROGRAMS) $(BUILD)/aper-test
 		echo 'aper accepted a missing depth' >&2; exit 1; \
 	fi
 	@./$(SEARCH_PROGRAM) -h | grep -q '^usage: aper-search'
-	@./$(SEARCH_PROGRAM) -h | grep -q 'does not claim novelty or aperiodicity'
+	@./$(SEARCH_PROGRAM) -h | grep -q 'novelty or aperiodicity'
 	@./$(SEARCH_PROGRAM) -V | grep -q '^aper-search 0\.8\.0$$'
 	@./$(SEARCH_PROGRAM) -n 2 > $(BUILD)/aper-search-first.pdf
 	@grep -a -q '/Title (Square 2x2 control tiling - square)' $(BUILD)/aper-search-first.pdf
@@ -212,21 +220,60 @@ check: $(PROGRAMS) $(BUILD)/aper-test
 		echo 'aper-search accepted an operand' >&2; exit 1; \
 	fi
 	@./$(SEARCH_PROGRAM) --list-known > $(BUILD)/aper-search-known.txt
-	@test "$$(wc -l < $(BUILD)/aper-search-known.txt)" -eq 6
+	@test "$$(wc -l < $(BUILD)/aper-search-known.txt)" -eq 7
 	@grep -q '^p3[[:space:]]penrose-rhomb[[:space:]]https://' $(BUILD)/aper-search-known.txt
+	@grep -q '^thue-morse-2d[[:space:]]thue-morse-2d[[:space:]]https://' $(BUILD)/aper-search-known.txt
 	@awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" && $$5 != "-" \
 		{ print $$5 "\t" $$1 "\t" $$3 }' $(ENCYCLOPEDIA_BANK) | \
 		LC_ALL=C sort > $(BUILD)/encyclopedia-known.txt
 	@LC_ALL=C sort $(BUILD)/aper-search-known.txt | \
 		cmp - $(BUILD)/encyclopedia-known.txt
 	@./$(SEARCH_PROGRAM) --classify > $(BUILD)/aper-search-classification.txt
-	@grep -q '^no-exact-match[[:space:]]6 encoded systems checked$$' $(BUILD)/aper-search-classification.txt
+	@grep -q '^no-exact-match[[:space:]]7 encoded systems checked$$' $(BUILD)/aper-search-classification.txt
+	@./$(SEARCH_PROGRAM) --space binary-square --list-candidates > \
+		$(BUILD)/aper-search-binary-candidates.txt
+	@grep -q '^# generated[[:space:]]256$$' $(BUILD)/aper-search-binary-candidates.txt
+	@grep -q '^# algebraically-valid[[:space:]]224$$' $(BUILD)/aper-search-binary-candidates.txt
+	@grep -q '^# geometrically-valid[[:space:]]224$$' $(BUILD)/aper-search-binary-candidates.txt
+	@grep -q '^# unique[[:space:]]27$$' $(BUILD)/aper-search-binary-candidates.txt
+	@test "$$(awk -F '\t' '$$1 ~ /^[0-9]+$$/ { count++ } END { print count }' \
+		$(BUILD)/aper-search-binary-candidates.txt)" -eq 27
+	@test "$$(awk -F '\t' '$$1 ~ /^[0-9]+$$/ && $$3 != "-" { count++ } END { print count }' \
+		$(BUILD)/aper-search-binary-candidates.txt)" -eq 1
+	@grep -q '^22[[:space:]]binary-square-06-09[[:space:]]thue-morse-2d$$' \
+		$(BUILD)/aper-search-binary-candidates.txt
+	@./$(SEARCH_PROGRAM) --space binary-square --candidate 22 -n 4 > \
+		$(BUILD)/aper-search-binary-patch.pdf
+	@grep -a -q '/Title (Binary square 06-09 tiling - a)' \
+		$(BUILD)/aper-search-binary-patch.pdf
+	@./$(SEARCH_PROGRAM) --space binary-square --candidate 22 --rule > \
+		$(BUILD)/aper-search-binary-rule.pdf
+	@grep -a -q '/Title (Binary square 06-09 substitution rule)' \
+		$(BUILD)/aper-search-binary-rule.pdf
+	@./$(SEARCH_PROGRAM) --space binary-square --candidate 22 --classify | \
+		grep -q '^exact-rule[[:space:]]thue-morse-2d[[:space:]]https://'
+	@./$(SEARCH_PROGRAM) --space binary-square --candidate 21 --classify | \
+		grep -q '^no-exact-match[[:space:]]7 encoded systems checked$$'
+	@if ./$(SEARCH_PROGRAM) --space binary-square --candidate 27 >/dev/null 2>&1; then \
+		echo 'aper-search accepted an out-of-range candidate' >&2; exit 1; \
+	fi
+	@if ./$(SEARCH_PROGRAM) --list-candidates --candidate 0 >/dev/null 2>&1; then \
+		echo 'aper-search mixed candidate listing and selection' >&2; exit 1; \
+	fi
 	@if ./$(SEARCH_PROGRAM) --classify --rule >/dev/null 2>&1; then \
 		echo 'aper-search mixed classification and PDF output' >&2; exit 1; \
 	fi
 
 encyclopedia-bank:
 	tools/update-encyclopedia-bank
+
+catalogue: $(PROGRAMS)
+	tools/fetch-encyclopedia-artwork
+	tools/build-catalogue
+
+catalogue-offline: $(PROGRAMS)
+	tools/fetch-encyclopedia-artwork --offline
+	tools/build-catalogue
 
 install: $(PROGRAMS)
 	install -d "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/share/man/man1"
@@ -245,6 +292,7 @@ install-encyclopedia: $(ENCYCLOPEDIA_BANK) $(ENCYCLOPEDIA_NOTICE)
 clean:
 	rm -f $(PROGRAMS) $(BUILD)/*.o $(BUILD)/*.d $(BUILD)/aper-test
 	rm -f $(BUILD)/*.pdf $(BUILD)/*.png $(BUILD)/*.txt $(BUILD)/*.tmp
+	rm -rf $(BUILD)/catalogue $(BUILD)/catalogue-smoke
 	rmdir $(BUILD) 2>/dev/null || true
 
 -include $(DEPS)

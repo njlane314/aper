@@ -25,6 +25,7 @@ LOCAL_SYSTEMS = {
     "penrose-rhomb": "p3",
     "pinwheel": "pinwheel",
     "stampflis-12-fold-1": "stampfli",
+    "thue-morse-2d": "thue-morse-2d",
 }
 
 
