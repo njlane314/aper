@@ -1,4 +1,5 @@
 #include "penrose.hpp"
+#include "bank.hpp"
 #include "system.hpp"
 
 #include <algorithm>
@@ -680,7 +681,8 @@ TilingSystem make_p1_system() {
          "P1",
          {"pentagon-boat-star"},
          "pentagon-5",
-         {minimum_depth, default_p1_depth, maximum_p1_depth}},
+         {minimum_depth, default_p1_depth, maximum_p1_depth},
+         {encyclopedia_reference("penrose-pentagon-boat-star")}},
         std::move(prototiles),
         SubstitutionRule{phi * phi, std::move(rules)},
         std::move(seeds),
@@ -762,7 +764,8 @@ TilingSystem make_robinson_system(Tiling tiling) {
          p2 ? "P2" : "P3",
          {p2 ? "kite-dart" : "rhomb"},
          "sun",
-         {minimum_depth, default_depth, maximum_depth}},
+         {minimum_depth, default_depth, maximum_depth},
+         {encyclopedia_reference(p2 ? "penrose-kite-dart" : "penrose-rhomb")}},
         std::move(prototiles),
         SubstitutionRule{phi, std::move(rules)},
         std::move(seeds),

@@ -1,5 +1,6 @@
 #include "pdf.hpp"
 #include "system.hpp"
+#include "version.hpp"
 #include "view.hpp"
 
 #include <charconv>
@@ -11,8 +12,6 @@
 #include <system_error>
 
 namespace {
-
-constexpr std::string_view version = "0.7.0";
 
 struct Options {
     const aper::TilingSystem* system = nullptr;
@@ -138,7 +137,7 @@ Options parse_options(int argc, char** argv) {
             std::exit(0);
         }
         if (argument == "-V" || argument == "--version") {
-            std::cout << "aper " << version << '\n';
+            std::cout << "aper " << aper::version << '\n';
             std::exit(0);
         }
         if (argument == "-r" || argument == "--rule") {

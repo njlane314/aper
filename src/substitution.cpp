@@ -1,3 +1,4 @@
+#include "bank.hpp"
 #include "penrose.hpp"
 #include "system.hpp"
 
@@ -602,7 +603,8 @@ TilingSystem make_ammann_system() {
          "Ammann-Beenker",
          {"ab"},
          "octagon",
-         {minimum_depth, default_ammann_beenker_depth, maximum_ammann_beenker_depth}},
+         {minimum_depth, default_ammann_beenker_depth, maximum_ammann_beenker_depth},
+         {encyclopedia_reference("ammann-beenker-rhomb-triangle")}},
         std::move(prototiles),
         SubstitutionRule{1.0 + std::sqrt(2.0), std::move(rules)},
         std::move(seeds),
@@ -625,7 +627,8 @@ TilingSystem make_pinwheel_system() {
          "Pinwheel",
          {},
          "triangle",
-         {minimum_depth, default_pinwheel_depth, maximum_pinwheel_depth}},
+         {minimum_depth, default_pinwheel_depth, maximum_pinwheel_depth},
+         {encyclopedia_reference("pinwheel")}},
         {prototile},
         SubstitutionRule{std::sqrt(5.0), {{0, Patch{std::move(children)}}}},
         {{"triangle", Patch{{Placement{0, {}}}}, 1}},
@@ -658,7 +661,8 @@ TilingSystem make_stampfli_system() {
          "Stampfli 12-fold 1",
          {"stampfli-12-fold-1"},
          "dodecagon",
-         {minimum_depth, default_stampfli_depth, maximum_stampfli_depth}},
+         {minimum_depth, default_stampfli_depth, maximum_stampfli_depth},
+         {encyclopedia_reference("stampflis-12-fold-1")}},
         std::move(prototiles),
         SubstitutionRule{2.0 + std::sqrt(3.0), std::move(rules), true},
         std::move(seeds),

@@ -75,6 +75,7 @@ class SubstitutionRule {
 
     double inflation() const { return inflation_; }
     std::span<const RuleEntry> entries() const { return entries_; }
+    bool deduplicates() const { return deduplicate_; }
     const Patch& replacement(PrototileId parent) const;
     Patch apply(const Patch& patch, std::span<const Prototile> prototiles) const;
     IncidenceMatrix incidence_matrix(std::size_t prototiles) const;
@@ -97,12 +98,26 @@ struct DepthRange {
     unsigned maximum = 1;
 };
 
+struct SourceReference {
+    std::string collection;
+    std::string record;
+    std::string url;
+    std::string citation;
+    std::string licence_url;
+};
+
 struct SystemSpec {
+    SystemSpec() = default;
+    SystemSpec(std::string id, std::string name, std::vector<std::string> aliases,
+               std::string default_seed, DepthRange depths,
+               std::vector<SourceReference> sources = {});
+
     std::string id;
     std::string name;
     std::vector<std::string> aliases;
     std::string default_seed;
     DepthRange depths;
+    std::vector<SourceReference> sources;
 };
 
 class TilingSystem;

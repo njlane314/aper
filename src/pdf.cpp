@@ -1,4 +1,5 @@
 #include "pdf.hpp"
+#include "version.hpp"
 
 #include <algorithm>
 #include <array>
@@ -258,8 +259,8 @@ std::string make_drawing_pdf(const Drawing& drawing, ColourScheme colour_scheme)
     }
     subject += std::string(colours.name) + " colour scheme";
     const auto information = "<< /Title (" + pdf_string(drawing.metadata().title) +
-                             ") /Creator (aper 0.7.0) /Subject (" +
-                             pdf_string(subject) + ") >>";
+                             ") /Creator (aper " + std::string(version) +
+                             ") /Subject (" + pdf_string(subject) + ") >>";
     append_object(document, offsets, 5, information);
 
     const auto xref_offset = document.size();
@@ -366,9 +367,9 @@ std::string make_pdf(std::span<const Tile> tiles, Tiling tiling, Seed seed,
     const auto subject =
         "<< /Title (" + std::string(family) +
         (penrose ? " Penrose tiling - " : " tiling - ") + std::string(seed_name(seed)) +
-        ") /Creator (aper 0.7.0) /Subject (" + std::string(seed_name(seed)) +
-        " seed at depth " + std::to_string(depth) + "; " + std::string(colours.name) +
-        " colour scheme) >>";
+        ") /Creator (aper " + std::string(version) + ") /Subject (" +
+        std::string(seed_name(seed)) + " seed at depth " + std::to_string(depth) +
+        "; " + std::string(colours.name) + " colour scheme) >>";
     append_object(document, offsets, 5, subject);
 
     const auto xref_offset = document.size();

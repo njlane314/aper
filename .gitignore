@@ -1,5 +1,6 @@
 /.build/
 /aper
+/aper-search
 *.pdf
 *.png
 !doc/*.png

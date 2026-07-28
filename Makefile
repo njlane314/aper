@@ -11,6 +11,10 @@ WARNINGS = -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 STANDARD = -std=c++20
 BUILD = .build
 PROGRAM = aper
+SEARCH_PROGRAM = aper-search
+PROGRAMS = $(PROGRAM) $(SEARCH_PROGRAM)
+ENCYCLOPEDIA_BANK = data/encyclopedia.tsv
+ENCYCLOPEDIA_NOTICE = data/encyclopedia.NOTICE.md
 
 ifeq ($(shell uname -s),Darwin)
 MACOS_SDK_PATH := $(shell xcrun --show-sdk-path 2>/dev/null)
@@ -19,16 +23,22 @@ CPPFLAGS += -isystem $(MACOS_SDK_PATH)/usr/include/c++/v1
 endif
 endif
 
-SOURCES = src/main.cpp src/system.cpp src/penrose.cpp src/substitution.cpp src/view.cpp src/pdf.cpp
-OBJECTS = $(SOURCES:src/%.cpp=$(BUILD)/%.o)
-DEPS = $(OBJECTS:.o=.d) $(BUILD)/test.d
+CORE_SOURCES = src/system.cpp src/penrose.cpp src/substitution.cpp src/view.cpp src/pdf.cpp src/discovery.cpp src/bank.cpp
+CORE_OBJECTS = $(CORE_SOURCES:src/%.cpp=$(BUILD)/%.o)
+APER_OBJECTS = $(BUILD)/main.o $(CORE_OBJECTS)
+SEARCH_OBJECTS = $(BUILD)/search.o $(CORE_OBJECTS)
+OBJECTS = $(APER_OBJECTS) $(SEARCH_OBJECTS) $(BUILD)/test.o
+DEPS = $(sort $(OBJECTS:.o=.d))
 
-.PHONY: all check clean install
+.PHONY: all check clean encyclopedia-bank install install-encyclopedia
 
-all: $(PROGRAM)
+all: $(PROGRAMS)
 
-$(PROGRAM): $(OBJECTS)
-	$(CXX) $(LDFLAGS) -o $@ $(OBJECTS) $(LDLIBS)
+$(PROGRAM): $(APER_OBJECTS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+$(SEARCH_PROGRAM): $(SEARCH_OBJECTS)
+	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILD)/%.o: src/%.cpp | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(WARNINGS) $(STANDARD) -Isrc -MMD -MP -c $< -o $@
@@ -36,20 +46,32 @@ $(BUILD)/%.o: src/%.cpp | $(BUILD)
 $(BUILD)/test.o: tests/test.cpp | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(WARNINGS) $(STANDARD) -Isrc -MMD -MP -c $< -o $@
 
-$(BUILD)/aper-test: $(BUILD)/test.o $(BUILD)/system.o $(BUILD)/penrose.o $(BUILD)/substitution.o $(BUILD)/view.o $(BUILD)/pdf.o
+$(BUILD)/aper-test: $(BUILD)/test.o $(CORE_OBJECTS)
 	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILD):
 	mkdir -p $@
 
-check: $(PROGRAM) $(BUILD)/aper-test
+check: $(PROGRAMS) $(BUILD)/aper-test
 	./$(BUILD)/aper-test
+	@tools/update-encyclopedia-bank --help >/dev/null
+	@test "$$(awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" { count++ } END { print count }' $(ENCYCLOPEDIA_BANK))" -ge 250
+	@test "$$(awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" { count++ } END { print count }' $(ENCYCLOPEDIA_BANK))" = \
+		"$$(awk '$$1 == "#" && $$2 == "records:" { print $$3 }' $(ENCYCLOPEDIA_BANK))"
+	@awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" && \
+		(NF != 5 || $$3 != "https://tilings.math.uni-bielefeld.de/substitution/" $$1 "/") \
+		{ exit 1 }' $(ENCYCLOPEDIA_BANK)
+	@awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" { print $$1 }' \
+		$(ENCYCLOPEDIA_BANK) | LC_ALL=C sort -c
+	@test "$$(awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" && $$5 != "-" { count++ } END { print count }' $(ENCYCLOPEDIA_BANK))" -eq 6
+	@test -z "$$(awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" { print $$1 }' \
+		$(ENCYCLOPEDIA_BANK) | sort | uniq -d)"
 	@./$(PROGRAM) -h | grep -q '^usage: aper'
 	@./$(PROGRAM) -h | grep -q 'ammann-beenker: Ammann-Beenker'
 	@./$(PROGRAM) -h | grep -q 'stampfli-12-fold-1'
 	@./$(PROGRAM) -h | grep -q 'thin requires depth 2+'
 	@./$(PROGRAM) -h | grep -q -- '--rule'
-	@./$(PROGRAM) -V | grep -q '^aper 0\.7\.0$$'
+	@./$(PROGRAM) -V | grep -q '^aper 0\.8\.0$$'
 	@./$(PROGRAM) | grep -a -q '/Subject (sun seed at depth 7;'
 	@./$(PROGRAM) -t p1 | grep -a -q '/Subject (pentagon-5 seed at depth 5;'
 	@./$(PROGRAM) -t ammann-beenker | grep -a -q '/Subject (octagon seed at depth 4;'
@@ -150,14 +172,79 @@ check: $(PROGRAM) $(BUILD)/aper-test
 	@if ./$(PROGRAM) --depth >/dev/null 2>&1; then \
 		echo 'aper accepted a missing depth' >&2; exit 1; \
 	fi
+	@./$(SEARCH_PROGRAM) -h | grep -q '^usage: aper-search'
+	@./$(SEARCH_PROGRAM) -h | grep -q 'does not claim novelty or aperiodicity'
+	@./$(SEARCH_PROGRAM) -V | grep -q '^aper-search 0\.8\.0$$'
+	@./$(SEARCH_PROGRAM) -n 2 > $(BUILD)/aper-search-first.pdf
+	@grep -a -q '/Title (Square 2x2 control tiling - square)' $(BUILD)/aper-search-first.pdf
+	@grep -a -q '%%EOF' $(BUILD)/aper-search-first.pdf
+	@./$(SEARCH_PROGRAM) --depth=2 > $(BUILD)/aper-search-second.pdf
+	@cmp $(BUILD)/aper-search-first.pdf $(BUILD)/aper-search-second.pdf
+	@./$(SEARCH_PROGRAM) --rule > $(BUILD)/aper-search-rule.pdf
+	@grep -a -q '/Title (Square 2x2 control substitution rule)' $(BUILD)/aper-search-rule.pdf
+	@grep -a -q '%%EOF' $(BUILD)/aper-search-rule.pdf
+	@./$(SEARCH_PROGRAM) -r > $(BUILD)/aper-search-rule-second.pdf
+	@cmp $(BUILD)/aper-search-rule.pdf $(BUILD)/aper-search-rule-second.pdf
+	@./$(SEARCH_PROGRAM) -n 7 >/dev/null
+	@./$(SEARCH_PROGRAM) -c tide -n 1 | grep -a -q '%%EOF'
+	@if ./$(SEARCH_PROGRAM) -n 0 >/dev/null 2>&1; then \
+		echo 'aper-search accepted an invalid depth' >&2; exit 1; \
+	fi
+	@if ./$(SEARCH_PROGRAM) -n 8 >/dev/null 2>&1; then \
+		echo 'aper-search accepted an excessive depth' >&2; exit 1; \
+	fi
+	@if ./$(SEARCH_PROGRAM) -c sepia >/dev/null 2>&1; then \
+		echo 'aper-search accepted an invalid colour scheme' >&2; exit 1; \
+	fi
+	@if ./$(SEARCH_PROGRAM) --rule --depth 2 >/dev/null 2>&1; then \
+		echo 'aper-search accepted a patch-only option for rule output' >&2; exit 1; \
+	fi
+	@if ./$(SEARCH_PROGRAM) --colour >/dev/null 2>&1; then \
+		echo 'aper-search accepted a missing colour scheme' >&2; exit 1; \
+	fi
+	@if ./$(SEARCH_PROGRAM) --depth >/dev/null 2>&1; then \
+		echo 'aper-search accepted a missing depth' >&2; exit 1; \
+	fi
+	@if ./$(SEARCH_PROGRAM) --bogus >/dev/null 2>&1; then \
+		echo 'aper-search accepted an unknown option' >&2; exit 1; \
+	fi
+	@if ./$(SEARCH_PROGRAM) tile >/dev/null 2>&1; then \
+		echo 'aper-search accepted an operand' >&2; exit 1; \
+	fi
+	@./$(SEARCH_PROGRAM) --list-known > $(BUILD)/aper-search-known.txt
+	@test "$$(wc -l < $(BUILD)/aper-search-known.txt)" -eq 6
+	@grep -q '^p3[[:space:]]penrose-rhomb[[:space:]]https://' $(BUILD)/aper-search-known.txt
+	@awk -F '\t' '$$1 !~ /^#/ && $$1 != "slug" && $$5 != "-" \
+		{ print $$5 "\t" $$1 "\t" $$3 }' $(ENCYCLOPEDIA_BANK) | \
+		LC_ALL=C sort > $(BUILD)/encyclopedia-known.txt
+	@LC_ALL=C sort $(BUILD)/aper-search-known.txt | \
+		cmp - $(BUILD)/encyclopedia-known.txt
+	@./$(SEARCH_PROGRAM) --classify > $(BUILD)/aper-search-classification.txt
+	@grep -q '^no-exact-match[[:space:]]6 encoded systems checked$$' $(BUILD)/aper-search-classification.txt
+	@if ./$(SEARCH_PROGRAM) --classify --rule >/dev/null 2>&1; then \
+		echo 'aper-search mixed classification and PDF output' >&2; exit 1; \
+	fi
 
-install: $(PROGRAM)
+encyclopedia-bank:
+	tools/update-encyclopedia-bank
+
+install: $(PROGRAMS)
 	install -d "$(DESTDIR)$(PREFIX)/bin" "$(DESTDIR)$(PREFIX)/share/man/man1"
 	install -m 0755 $(PROGRAM) "$(DESTDIR)$(PREFIX)/bin/$(PROGRAM)"
+	install -m 0755 $(SEARCH_PROGRAM) "$(DESTDIR)$(PREFIX)/bin/$(SEARCH_PROGRAM)"
 	install -m 0644 man/aper.1 "$(DESTDIR)$(PREFIX)/share/man/man1/aper.1"
+	install -m 0644 man/aper-search.1 "$(DESTDIR)$(PREFIX)/share/man/man1/aper-search.1"
+
+install-encyclopedia: $(ENCYCLOPEDIA_BANK) $(ENCYCLOPEDIA_NOTICE)
+	install -d "$(DESTDIR)$(PREFIX)/share/aper"
+	install -m 0644 $(ENCYCLOPEDIA_BANK) \
+		"$(DESTDIR)$(PREFIX)/share/aper/encyclopedia.tsv"
+	install -m 0644 $(ENCYCLOPEDIA_NOTICE) \
+		"$(DESTDIR)$(PREFIX)/share/aper/encyclopedia.NOTICE.md"
 
 clean:
-	rm -f $(PROGRAM) $(BUILD)/*.o $(BUILD)/*.d $(BUILD)/aper-test
+	rm -f $(PROGRAMS) $(BUILD)/*.o $(BUILD)/*.d $(BUILD)/aper-test
+	rm -f $(BUILD)/*.pdf $(BUILD)/*.png $(BUILD)/*.txt $(BUILD)/*.tmp
 	rmdir $(BUILD) 2>/dev/null || true
 
 -include $(DEPS)

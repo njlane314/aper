@@ -140,6 +140,14 @@ bool finite(Point point) {
 
 } // namespace
 
+SystemSpec::SystemSpec(std::string id_value, std::string name_value,
+                       std::vector<std::string> alias_values,
+                       std::string default_seed_value, DepthRange depth_values,
+                       std::vector<SourceReference> source_values)
+    : id(std::move(id_value)), name(std::move(name_value)),
+      aliases(std::move(alias_values)), default_seed(std::move(default_seed_value)),
+      depths(depth_values), sources(std::move(source_values)) {}
+
 Similarity::Similarity(Point translation, Point multiplier, bool reflected)
     : translation_(translation), multiplier_(multiplier), reflected_(reflected) {}
 
@@ -302,6 +310,22 @@ std::vector<std::string> TilingSystem::collect_validation_issues() const {
     if (spec_.depths.minimum == 0 || spec_.depths.minimum > spec_.depths.recommended ||
         spec_.depths.recommended > spec_.depths.maximum) {
         issues.emplace_back("invalid depth range");
+    }
+    for (std::size_t i = 0; i < spec_.sources.size(); ++i) {
+        const auto& source = spec_.sources[i];
+        if (source.collection.empty() || source.record.empty() || source.url.empty() ||
+            source.citation.empty() || source.licence_url.empty()) {
+            issues.emplace_back("source reference is incomplete");
+        }
+        for (std::size_t j = 0; j < i; ++j) {
+            const auto& previous = spec_.sources[j];
+            if ((source.collection == previous.collection &&
+                 source.record == previous.record) ||
+                source.url == previous.url) {
+                issues.emplace_back("duplicate source reference");
+                break;
+            }
+        }
     }
     if (prototiles_.empty()) {
         issues.emplace_back("no prototiles");

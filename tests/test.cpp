@@ -1,6 +1,9 @@
+#include "bank.hpp"
+#include "discovery.hpp"
 #include "pdf.hpp"
 #include "penrose.hpp"
 #include "system.hpp"
+#include "version.hpp"
 
 #include <algorithm>
 #include <array>
@@ -93,6 +96,127 @@ struct TileTopology {
     std::size_t boundary_edges;
     std::size_t shared_edges;
 };
+
+std::vector<aper::Placement> square_quarters() {
+    return {
+        {0, aper::Similarity{{0.0, 0.0}, {0.5, 0.0}}},
+        {0, aper::Similarity{{0.5, 0.0}, {0.5, 0.0}}},
+        {0, aper::Similarity{{0.0, 0.5}, {0.5, 0.0}}},
+        {0, aper::Similarity{{0.5, 0.5}, {0.5, 0.0}}},
+    };
+}
+
+aper::TilingSystem make_square_system(std::string id,
+                                      std::vector<aper::Placement> placements,
+                                      std::vector<aper::SourceReference> sources = {}) {
+    return {
+        {std::move(id), "Grid", {}, "square", {1, 2, 7}, std::move(sources)},
+        {{0,
+          "square",
+          aper::Shape::generic_polygon,
+          {{0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}},
+          0}},
+        aper::SubstitutionRule{2.0, {{0, aper::Patch{std::move(placements)}}}},
+        {{"square", aper::Patch{{aper::Placement{0, {}}}}, 1}},
+        aper::identity_projector(),
+    };
+}
+
+aper::TilingSystem make_reframed_square_system(bool reflected) {
+    const aper::Point origin{3.0, -2.0};
+    const aper::Point axis{0.0, 2.0};
+    const auto frame = [=](aper::Point point) {
+        return origin + axis * (reflected ? std::conj(point) : point);
+    };
+    std::vector<aper::Point> boundary;
+    for (const auto point : std::array{aper::Point{0.0, 0.0}, aper::Point{1.0, 0.0},
+                                       aper::Point{1.0, 1.0}, aper::Point{0.0, 1.0}}) {
+        boundary.push_back(frame(point));
+    }
+    std::vector<aper::Placement> placements;
+    for (const auto& placement : square_quarters()) {
+        const auto translation = placement.pose.translation();
+        const auto framed_translation =
+            origin + axis * (reflected ? std::conj(translation) : translation) -
+            0.5 * origin;
+        placements.push_back({0, aper::Similarity{framed_translation, {0.5, 0.0}}});
+    }
+    return {
+        {reflected ? "reflected-grid" : "reframed-grid",
+         "Reframed grid",
+         {},
+         "square",
+         {1, 2, 7}},
+        {{0, "square", aper::Shape::generic_polygon, std::move(boundary), 0}},
+        aper::SubstitutionRule{2.0, {{0, aper::Patch{std::move(placements)}}}},
+        {{"square", aper::Patch{{aper::Placement{0, {}}}}, 1}},
+        aper::identity_projector(),
+    };
+}
+
+aper::TilingSystem make_typed_square_system(bool relabelled, bool reflected = false) {
+    const auto renamed = [relabelled](aper::PrototileId id) {
+        return relabelled ? 1 - id : id;
+    };
+    const std::array patterns{
+        std::array<aper::PrototileId, 4>{0, 0, 0, 1},
+        std::array<aper::PrototileId, 4>{1, 0, 1, 1},
+    };
+    const std::array translations{
+        aper::Point{0.0, 0.0},
+        aper::Point{0.5, 0.0},
+        aper::Point{0.0, 0.5},
+        aper::Point{0.5, 0.5},
+    };
+    std::vector<aper::RuleEntry> rules;
+    for (aper::PrototileId parent = 0; parent < patterns.size(); ++parent) {
+        std::vector<aper::Placement> placements;
+        for (std::size_t i = 0; i < translations.size(); ++i) {
+            const auto translation =
+                reflected ? std::conj(translations[i]) : translations[i];
+            placements.push_back({renamed(patterns[parent][i]),
+                                  aper::Similarity{translation, {0.5, 0.0}}});
+        }
+        rules.push_back({renamed(parent), aper::Patch{std::move(placements)}});
+    }
+    if (relabelled) {
+        std::reverse(rules.begin(), rules.end());
+    }
+    std::vector<aper::Point> square{{0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}};
+    if (reflected) {
+        std::transform(square.begin(), square.end(), square.begin(),
+                       [](aper::Point point) { return std::conj(point); });
+    }
+    return {
+        {relabelled ? "typed-swapped" : "typed", "Typed grid", {}, "seed", {1, 2, 5}},
+        {{0, "first", aper::Shape::generic_polygon, square, 0},
+         {1, "second", aper::Shape::generic_polygon, square, aper::maximum_fill}},
+        aper::SubstitutionRule{2.0, std::move(rules)},
+        {{"seed", aper::Patch{{aper::Placement{renamed(0), {}}}}, 1}},
+        aper::identity_projector(),
+    };
+}
+
+class DuplicateSquareSource final : public aper::CandidateSource {
+  public:
+    void enumerate(const Visitor& visit) const override {
+        auto reversed = square_quarters();
+        std::reverse(reversed.begin(), reversed.end());
+        if (!visit(make_square_system("first-square", square_quarters()))) {
+            return;
+        }
+        (void)visit(make_square_system("second-square", std::move(reversed)));
+    }
+};
+
+std::vector<aper::TilingSystem> collect(const aper::CandidateSource& source) {
+    std::vector<aper::TilingSystem> result;
+    source.enumerate([&](aper::TilingSystem candidate) {
+        result.push_back(std::move(candidate));
+        return true;
+    });
+    return result;
+}
 
 TileTopology topology(std::span<const aper::Tile> tiles) {
     using QuantisedPoint = std::array<long long, 2>;
@@ -228,6 +352,27 @@ void test_p1_substitution() {
 void test_substitution_systems() {
     const auto& catalogue = aper::tiling_catalogue();
     CHECK(catalogue.systems().size() == 6);
+    constexpr std::array<std::string_view, 6> source_records{
+        "penrose-pentagon-boat-star",    "penrose-kite-dart", "penrose-rhomb",
+        "ammann-beenker-rhomb-triangle", "pinwheel",          "stampflis-12-fold-1",
+    };
+    for (std::size_t i = 0;
+         i < std::min(catalogue.systems().size(), source_records.size()); ++i) {
+        const auto& sources = catalogue.systems()[i].spec().sources;
+        CHECK(sources.size() == 1);
+        if (sources.empty()) {
+            continue;
+        }
+        CHECK(sources.front().collection == "Tilings Encyclopedia");
+        CHECK(sources.front().record == source_records[i]);
+        CHECK(sources.front().url ==
+              "https://tilings.math.uni-bielefeld.de/substitution/" +
+                  std::string(source_records[i]) + '/');
+        CHECK(sources.front().citation.find("Tilings Encyclopedia") !=
+              std::string::npos);
+        CHECK(sources.front().licence_url ==
+              "https://creativecommons.org/licenses/by-nc-sa/2.0/");
+    }
     CHECK(catalogue.find("p1") == &aper::tiling_system(aper::Tiling::p1));
     CHECK(catalogue.find("pentagon-boat-star") ==
           &aper::tiling_system(aper::Tiling::p1));
@@ -280,32 +425,13 @@ void test_substitution_systems() {
     }
     CHECK(rejected_unrenderable_depth);
 
-    const auto make_grid = [](std::string id) {
-        std::vector<aper::Placement> quarters{
-            {0, aper::Similarity{{0.0, 0.0}, {0.5, 0.0}}},
-            {0, aper::Similarity{{0.5, 0.0}, {0.5, 0.0}}},
-            {0, aper::Similarity{{0.5, 0.5}, {0.5, 0.0}}},
-            {0, aper::Similarity{{0.0, 0.5}, {0.5, 0.0}}},
-        };
-        return aper::TilingSystem{
-            {std::move(id), "Grid", {}, "square", {1, 2, 5}},
-            {{0,
-              "square",
-              aper::Shape::generic_polygon,
-              {{0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}},
-              0}},
-            aper::SubstitutionRule{2.0, {{0, aper::Patch{std::move(quarters)}}}},
-            {{"square", aper::Patch{{aper::Placement{0, {}}}}, 1}},
-            aper::identity_projector(),
-        };
-    };
-    auto grid = make_grid("grid");
+    auto grid = make_square_system("grid", square_quarters());
     CHECK(grid.generate_raw("square", 2).size() == 16);
     aper::TilingCatalogue extended;
     extended.add(std::move(grid));
     CHECK(extended.get("grid").generate("square", 1).size() == 4);
     const auto* original_grid = extended.find("grid");
-    extended.add(make_grid("grid-2"));
+    extended.add(make_square_system("grid-2", square_quarters()));
     CHECK(extended.find("grid") == original_grid);
 
     const std::vector<aper::Point> square{
@@ -341,6 +467,322 @@ void test_substitution_systems() {
         rejected_invalid_candidate = true;
     }
     CHECK(rejected_invalid_candidate);
+
+    auto incomplete_source = make_square_system("incomplete-source", square_quarters(),
+                                                {{"aper", {}, {}, {}, {}}});
+    CHECK(!incomplete_source.validate().empty());
+    const aper::SourceReference local_source{
+        "aper", "square-control", "https://github.com/njlane314/aper",
+        "aper square control", "https://opensource.org/license/isc-license-txt"};
+    auto duplicate_source = make_square_system("duplicate-source", square_quarters(),
+                                               {local_source, local_source});
+    CHECK(!duplicate_source.validate().empty());
+}
+
+bool has_issue(const aper::CandidateReport& report, aper::CandidateIssueKind kind) {
+    return std::any_of(report.issues().begin(), report.issues().end(),
+                       [kind](const auto& issue) { return issue.kind == kind; });
+}
+
+void test_discovery() {
+    const aper::SquareLatticeSearch source;
+    auto first_run = collect(source);
+    auto second_run = collect(source);
+    CHECK(first_run.size() == 1);
+    CHECK(second_run.size() == 1);
+    if (first_run.empty() || second_run.empty()) {
+        return;
+    }
+
+    const auto& candidate = first_run.front();
+    CHECK(candidate.validate().empty());
+    CHECK(candidate.spec().id == "square-2x2");
+    CHECK(candidate.spec().depths.minimum == 1);
+    CHECK(candidate.spec().depths.recommended == 4);
+    CHECK(candidate.spec().depths.maximum == 7);
+    CHECK(candidate.prototiles().size() == 1);
+    CHECK(candidate.rule().inflation() == 2.0);
+    CHECK(candidate.rule().replacement(0).size() == 4);
+    CHECK(candidate.seeds().size() == 1);
+    CHECK(candidate.rule().incidence_matrix(1) == aper::IncidenceMatrix{{4}});
+    CHECK(aper::area_eigenvalue_matches(candidate));
+    CHECK(aper::incidence_is_primitive({{4}}));
+    CHECK(!aper::incidence_is_primitive({{1, 0}, {0, 1}}));
+    CHECK(aper::incidence_is_primitive({{1, 1}, {1, 0}}));
+
+    const auto square_boundary = [](double side) {
+        return std::vector<aper::Point>{
+            {0.0, 0.0}, {side, 0.0}, {side, side}, {0.0, side}};
+    };
+    auto mixed_quarters = square_quarters();
+    for (std::size_t i = 1; i < mixed_quarters.size(); ++i) {
+        mixed_quarters[i].prototile = 1;
+    }
+    const aper::TilingSystem small_area_mismatch{
+        {"small-area-mismatch", "Small area mismatch", {}, "first", {1, 1, 2}},
+        {{0, "first", aper::Shape::generic_polygon, square_boundary(std::sqrt(2.0e-8)),
+          0},
+         {1, "second", aper::Shape::generic_polygon,
+          square_boundary(std::sqrt(2.05e-8)), 1}},
+        aper::SubstitutionRule{2.0,
+                               {{0, aper::Patch{square_quarters()}},
+                                {1, aper::Patch{std::move(mixed_quarters)}}}},
+        {{"first", aper::Patch{{aper::Placement{0, {}}}}, 1}},
+        aper::identity_projector(),
+    };
+    CHECK(small_area_mismatch.validate().empty());
+    CHECK(!aper::area_eigenvalue_matches(small_area_mismatch));
+
+    constexpr std::array expected_translations{
+        aper::Point{0.0, 0.0},
+        aper::Point{0.5, 0.0},
+        aper::Point{0.0, 0.5},
+        aper::Point{0.5, 0.5},
+    };
+    const auto placements = candidate.rule().replacement(0).placements();
+    CHECK(placements.size() == expected_translations.size());
+    for (std::size_t i = 0;
+         i < std::min(placements.size(), expected_translations.size()); ++i) {
+        CHECK(placements[i].prototile == 0);
+        CHECK(placements[i].pose.translation() == expected_translations[i]);
+        CHECK(placements[i].pose.multiplier() == aper::Point(0.5, 0.0));
+        CHECK(!placements[i].pose.reflected());
+    }
+
+    std::size_t expected_count = 1;
+    for (unsigned depth = 0; depth <= 7; ++depth) {
+        CHECK(candidate.generate_raw("square", depth).size() == expected_count);
+        expected_count *= 4;
+    }
+
+    const aper::GeometricValidator validator{{1.0e-9, 5, 2048}};
+    CHECK(validator.validate(candidate).valid());
+    const auto& known_penrose = aper::tiling_system(aper::Tiling::p3);
+    CHECK(aper::area_eigenvalue_matches(known_penrose, 1.0e-8));
+    const auto known_penrose_report =
+        aper::GeometricValidator{{1.0e-8, 3, 256}}.validate(known_penrose);
+    CHECK(known_penrose_report.valid());
+    const aper::KnownTilingBank known_bank{aper::tiling_catalogue()};
+    CHECK(known_bank.systems().size() == 6);
+    const auto known_matches = known_bank.classify(known_penrose);
+    CHECK(known_matches.size() == 1);
+    if (!known_matches.empty()) {
+        CHECK(known_matches.front().kind == aper::KnownMatchKind::exact_rule);
+        CHECK(known_matches.front().system == &known_penrose);
+    }
+    CHECK(known_bank.classify(candidate).empty());
+    bool rejected_bank_tolerance = false;
+    try {
+        (void)aper::KnownTilingBank{aper::tiling_catalogue(), 0.0};
+    } catch (const std::invalid_argument&) {
+        rejected_bank_tolerance = true;
+    }
+    CHECK(rejected_bank_tolerance);
+
+    aper::TilingCatalogue local_bank_catalogue;
+    local_bank_catalogue.add(make_square_system(
+        "square-control", square_quarters(),
+        {{"aper", "square-control", "https://github.com/njlane314/aper",
+          "aper square control", "https://opensource.org/license/isc-license-txt"}}));
+    const aper::KnownTilingBank local_bank{local_bank_catalogue};
+    CHECK(local_bank.classify(make_reframed_square_system(true)).size() == 1);
+    const auto resource_report =
+        aper::GeometricValidator{{1.0e-9, 5, 3}}.validate(candidate);
+    CHECK(!resource_report.valid());
+    CHECK(has_issue(resource_report, aper::CandidateIssueKind::resource_limit));
+
+    const auto discovery =
+        aper::DiscoveryEngine{aper::DiscoveryOptions{{1.0e-9, 5, 2048}, 4, 4, true}}
+            .run(source);
+    CHECK(discovery.statistics.generated == 1);
+    CHECK(discovery.statistics.structurally_valid == 1);
+    CHECK(discovery.statistics.algebraically_valid == 1);
+    CHECK(discovery.statistics.geometrically_valid == 1);
+    CHECK(discovery.statistics.canonicalised == 1);
+    CHECK(discovery.statistics.unique == 1);
+    CHECK(discovery.candidates.size() == 1);
+    if (!discovery.candidates.empty()) {
+        CHECK(discovery.candidates.front().serialisation.starts_with(
+            "aper-candidate-v1|"));
+    }
+
+    const auto deduplicated =
+        aper::DiscoveryEngine{aper::DiscoveryOptions{{1.0e-9, 3, 256}, 4, 4, true}}.run(
+            DuplicateSquareSource{});
+    CHECK(deduplicated.statistics.generated == 2);
+    CHECK(deduplicated.statistics.structurally_valid == 2);
+    CHECK(deduplicated.statistics.algebraically_valid == 2);
+    CHECK(deduplicated.statistics.geometrically_valid == 2);
+    CHECK(deduplicated.statistics.canonicalised == 2);
+    CHECK(deduplicated.statistics.unique == 1);
+    CHECK(deduplicated.candidates.size() == 1);
+
+    const auto bounded =
+        aper::DiscoveryEngine{aper::DiscoveryOptions{{1.0e-9, 1, 16}, 1, 4, true}}.run(
+            DuplicateSquareSource{});
+    CHECK(bounded.statistics.generated == 1);
+    CHECK(bounded.candidates.size() == 1);
+
+    const auto first_key = aper::canonical_key(candidate);
+    CHECK(first_key == aper::canonical_key(second_run.front()));
+    auto reversed = square_quarters();
+    std::reverse(reversed.begin(), reversed.end());
+    const auto reordered = make_square_system("reordered", std::move(reversed));
+    CHECK(first_key == aper::canonical_key(reordered));
+    const auto reframed = make_reframed_square_system(false);
+    const auto reflected = make_reframed_square_system(true);
+    CHECK(validator.validate(reframed).valid());
+    CHECK(validator.validate(reflected).valid());
+    CHECK(first_key == aper::canonical_key(reframed));
+    CHECK(first_key == aper::canonical_key(reflected));
+    CHECK(aper::canonical_key(make_typed_square_system(false)) ==
+          aper::canonical_key(make_typed_square_system(true)));
+    CHECK(aper::canonical_key(make_typed_square_system(false)) ==
+          aper::canonical_key(make_typed_square_system(false, true)));
+
+    const aper::TilingSystem collinear{
+        {"collinear", "Collinear grid", {}, "square", {1, 2, 7}},
+        {{0,
+          "square",
+          aper::Shape::generic_polygon,
+          {{0.0, 0.0}, {0.5, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}},
+          0}},
+        aper::SubstitutionRule{2.0, {{0, aper::Patch{square_quarters()}}}},
+        {{"square", aper::Patch{{aper::Placement{0, {}}}}, 1}},
+        aper::identity_projector(),
+    };
+    CHECK(validator.validate(collinear).valid());
+    CHECK(first_key == aper::canonical_key(collinear));
+
+    std::vector<aper::Prototile> many_prototiles;
+    std::vector<aper::RuleEntry> many_rules;
+    for (aper::PrototileId id = 0; id < 9; ++id) {
+        many_prototiles.push_back({id,
+                                   "type-" + std::to_string(id),
+                                   aper::Shape::generic_polygon,
+                                   {{0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}},
+                                   0});
+        auto many_placements = square_quarters();
+        for (auto& placement : many_placements) {
+            placement.prototile = id;
+        }
+        many_rules.push_back({id, aper::Patch{std::move(many_placements)}});
+    }
+    const aper::TilingSystem many_types{
+        {"many-types", "Many types", {}, "type-0", {1, 1, 2}},
+        std::move(many_prototiles),
+        aper::SubstitutionRule{2.0, std::move(many_rules)},
+        {{"type-0", aper::Patch{{aper::Placement{0, {}}}}, 1}},
+        aper::identity_projector(),
+    };
+    CHECK(many_types.validate().empty());
+    CHECK(aper::canonical_key(many_types).starts_with("aper-candidate-v1|types=9|"));
+
+    const auto bent_square = [](double scale) {
+        std::vector<aper::Placement> placements;
+        for (const auto& placement : square_quarters()) {
+            placements.push_back(
+                {0, aper::Similarity{placement.pose.translation() * scale,
+                                     placement.pose.multiplier()}});
+        }
+        return aper::TilingSystem{
+            {"bent", "Bent grid", {}, "square", {1, 2, 7}},
+            {{0,
+              "square",
+              aper::Shape::generic_polygon,
+              {{0.0, 0.0},
+               {0.5 * scale, 1.0e-8 * scale},
+               {scale, 0.0},
+               {scale, scale},
+               {0.0, scale}},
+              0}},
+            aper::SubstitutionRule{2.0, {{0, aper::Patch{std::move(placements)}}}},
+            {{"square", aper::Patch{{aper::Placement{0, {}}}}, 1}},
+            aper::identity_projector(),
+        };
+    };
+    const auto bent = bent_square(1.0);
+    const auto small_bent = bent_square(1.0e-3);
+    CHECK(bent.validate().empty());
+    CHECK(small_bent.validate().empty());
+    CHECK(aper::canonical_key(bent) == aper::canonical_key(small_bent));
+
+    const auto numerical_report =
+        aper::GeometricValidator{{1.0e-20, 1, 16}}.validate(candidate);
+    CHECK(has_issue(numerical_report, aper::CandidateIssueKind::numerical_ambiguity));
+
+    auto gap_placements = square_quarters();
+    gap_placements.pop_back();
+    const auto gap = make_square_system("gap", std::move(gap_placements));
+    CHECK(gap.validate().empty());
+    CHECK(!aper::area_eigenvalue_matches(gap));
+    const auto gap_report = aper::GeometricValidator{{1.0e-9, 1, 16}}.validate(gap);
+    CHECK(has_issue(gap_report, aper::CandidateIssueKind::area_mismatch));
+
+    auto overlap_placements = square_quarters();
+    overlap_placements.back() = overlap_placements.front();
+    const auto overlap = make_square_system("overlap", std::move(overlap_placements));
+    CHECK(overlap.validate().empty());
+    CHECK(aper::area_eigenvalue_matches(overlap));
+    const auto overlap_report =
+        aper::GeometricValidator{{1.0e-9, 1, 16}}.validate(overlap);
+    CHECK(has_issue(overlap_report, aper::CandidateIssueKind::overlap));
+
+    auto outside_placements = square_quarters();
+    outside_placements.back().pose = aper::Similarity{{1.0, 0.5}, {0.5, 0.0}};
+    const auto outside = make_square_system("outside", std::move(outside_placements));
+    CHECK(outside.validate().empty());
+    const auto outside_report =
+        aper::GeometricValidator{{1.0e-9, 1, 16}}.validate(outside);
+    CHECK(has_issue(outside_report, aper::CandidateIssueKind::outside_parent));
+
+    const std::vector<aper::Point> crossed_boundary{
+        {0.0, 0.0}, {2.0, 2.0}, {0.0, 2.0}, {2.0, 0.0}, {3.0, 1.0}};
+    const aper::TilingSystem crossed{
+        {"crossed", "Crossed", {}, "tile", {1, 1, 2}},
+        {{0, "tile", aper::Shape::generic_polygon, crossed_boundary, 0}},
+        aper::SubstitutionRule{2.0, {{0, aper::Patch{square_quarters()}}}},
+        {{"tile", aper::Patch{{aper::Placement{0, {}}}}, 1}},
+        aper::identity_projector(),
+    };
+    CHECK(crossed.validate().empty());
+    const auto crossed_report =
+        aper::GeometricValidator{{1.0e-9, 1, 16}}.validate(crossed);
+    CHECK(has_issue(crossed_report, aper::CandidateIssueKind::non_simple_polygon));
+
+    constexpr double crack = 7.5e-10;
+    std::vector<aper::Placement> cracked_placements;
+    for (const auto translation :
+         std::array{aper::Point{0.0, 0.0}, aper::Point{0.5 + crack, 0.0},
+                    aper::Point{0.0, 0.5}, aper::Point{0.5 + crack, 0.5}}) {
+        cracked_placements.push_back({0, aper::Similarity{translation, {0.5, 0.0}}});
+    }
+    const auto cracked = make_square_system("cracked", std::move(cracked_placements));
+    CHECK(cracked.validate().empty());
+    const auto cracked_report =
+        aper::GeometricValidator{{1.0e-9, 1, 16}}.validate(cracked);
+    CHECK(has_issue(cracked_report, aper::CandidateIssueKind::edge_mismatch));
+
+    const auto rules = aper::RuleView{candidate}.drawing();
+    CHECK(rules.polygons().size() == 5);
+    CHECK(rules.arrows().size() == 1);
+    CHECK(rules.metadata().title == "Square 2x2 control substitution rule");
+    const auto patch = aper::PatchView{candidate, "square", 2}.drawing();
+    CHECK(patch.polygons().size() == 16);
+    CHECK(patch.arrows().empty());
+    CHECK(close(patch.viewport().aspect_ratio(), 4.0 / 3.0));
+
+    std::ostringstream first_pdf;
+    std::ostringstream second_pdf;
+    aper::PdfRenderer{}.write(first_pdf, rules, aper::ColourScheme::tide);
+    aper::PdfRenderer{}.write(second_pdf, rules, aper::ColourScheme::tide);
+    CHECK(first_pdf.str() == second_pdf.str());
+    CHECK(first_pdf.str().starts_with("%PDF-1.4\n"));
+    CHECK(first_pdf.str().ends_with("%%EOF\n"));
+    CHECK(first_pdf.str().find("/Creator (aper " + std::string(aper::version) + ")") !=
+          std::string::npos);
+    CHECK(first_pdf.str().find("nan") == std::string::npos);
+    CHECK(first_pdf.str().find("inf") == std::string::npos);
 }
 
 void check_seed(const SeedFixture& fixture) {
@@ -793,7 +1235,8 @@ std::string check_pdf(aper::Tiling tiling, aper::Seed seed, std::string_view tit
     CHECK(pdf.starts_with("%PDF-1.4\n"));
     CHECK(pdf.ends_with("%%EOF\n"));
     CHECK(pdf.find(title) != std::string::npos);
-    CHECK(pdf.find("/Creator (aper 0.7.0)") != std::string::npos);
+    CHECK(pdf.find("/Creator (aper " + std::string(aper::version) + ")") !=
+          std::string::npos);
     CHECK(pdf.find("/MediaBox [0 0 720 720]") != std::string::npos);
     CHECK(pdf.find("/Resources << >>") != std::string::npos);
     CHECK(pdf.find("/Subject (" + std::string(aper::seed_name(seed)) +
@@ -977,7 +1420,8 @@ void test_patch_and_rule_views() {
         CHECK(pdf.ends_with("%%EOF\n"));
         CHECK(pdf.find("/MediaBox [0 0 720.0000 540.0000]") != std::string::npos);
         CHECK(pdf.find("/Title (" + rules.metadata().title + ")") != std::string::npos);
-        CHECK(pdf.find("/Creator (aper 0.7.0)") != std::string::npos);
+        CHECK(pdf.find("/Creator (aper " + std::string(aper::version) + ")") !=
+              std::string::npos);
         CHECK(pdf.find("nan") == std::string::npos);
         CHECK(pdf.find("inf") == std::string::npos);
     }
@@ -987,6 +1431,7 @@ void test_patch_and_rule_views() {
 
 int main() {
     test_substitution_systems();
+    test_discovery();
     test_seed_counts_and_area();
     test_p1_substitution();
     test_p2_vertex_seeds();

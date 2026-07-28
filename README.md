@@ -1,16 +1,18 @@
 # aper
 
 `aper` renders Penrose, Ammann–Beenker, Pinwheel, and Stampfli 12-fold 1
-substitution systems as dense patches or rule sheets.
+substitution systems as dense patches or rule sheets. `aper-search` runs a
+small, bounded search for candidate substitution rules.
 
-It is a small, dependency-free C++20 program for the shell. Deterministic,
+They are small, dependency-free C++20 tools for the shell. Deterministic,
 native vector PDF goes to standard output; diagnostics go to standard error.
 
 ```sh
 make
 ./aper > patch.pdf
 ./aper -t p1 --rule > rule.pdf
-open patch.pdf rule.pdf
+./aper-search --rule > square-rule.pdf
+open patch.pdf rule.pdf square-rule.pdf
 ```
 
 ## Use
@@ -57,14 +59,14 @@ For example, render the Pinwheel substitution rule:
 A tiling covers the plane without gaps or overlapping interiors. A
 [substitution tiling](https://tilings.math.uni-bielefeld.de/glossary/substitution/)
 begins with finitely many *prototile types*—types, not necessarily different
-shapes. A rule expands each type $T_i$ by a linear factor $\lambda>1$, dissects
+shapes. A rule expands each type $T_i$ by a linear factor $\lambda > 1$, dissects
 the result into transformed prototiles, and may then be iterated. Its finite
 stages are *supertiles*: nested patches in which the same organisation
 reappears at larger scales.
 
-Let $M_{ij}$ count type-$j$ tiles in the substituted type-$i$ tile, and let
-$a$ be the vector of prototile areas. In the plane, a consistent self-similar
-rule obeys
+Let $M_{ij}$ count tiles of type $j$ in the substitution of $T_i$, and let $a$
+be the vector of prototile areas. In the plane, a consistent self-similar rule
+obeys
 
 $$
 M a = \lambda^2 a.
@@ -73,7 +75,7 @@ $$
 The Perron–Frobenius data of $M$ therefore connects geometry with combinatorial
 growth and, for primitive substitutions, tile frequencies.
 
-A full tiling $T$ is nonperiodic when $T+x=T$ implies $x=0$. A system is
+A full tiling $T$ is nonperiodic when $T + x = T$ implies $x = 0$. A system is
 aperiodic only when every full-plane tiling it admits is nonperiodic;
 substitution alone does not guarantee this. Such tilings are interesting
 because a finite recursive description can produce deterministic long-range
@@ -83,6 +85,83 @@ dynamical systems, diffraction, and models of quasicrystals.
 
 `aper` renders finite substitution patches and their rules. A large patch may
 suggest aperiodicity, but it cannot prove it.
+
+## Search
+
+`aper-search` implements the first complete discovery loop over an intentionally
+small control space: one unit-square prototile, inflation $\lambda = 2$, and
+half-scale copies on a $2 \times 2$ grid.
+
+```text
+exact cover → structural and area tests → strict geometry
+            → five generations → canonical key → PDF
+```
+
+```sh
+./aper-search > square-candidate.pdf
+./aper-search --rule > square-rule.pdf
+```
+
+```text
+aper-search [-c scheme] [-n depth] [-r]
+aper-search -k | --classify
+aper-search -l | --list-known
+aper-search -h | --help
+aper-search -V | --version
+```
+
+Patch depth is 1--7 (default 4); `--rule` renders the rule instead.
+
+The exact-cover enumerator rediscovers one rule: the ordinary periodic square
+grid. `GeometricValidator` rejects non-simple polygons, escaped or overlapping
+children, gaps, area errors, and unmatched atomic edges. `canonical_key()`
+normalises geometry, placement order, global reflection, and prototile
+relabelling before duplicate candidates are removed. Relabelling is exhaustive
+for up to eight prototiles; larger systems retain their semantic type IDs.
+
+This is a control experiment, not a new tiling. It establishes a tested seam
+for further `CandidateSource` implementations on triangular lattices,
+polyominoes, or exact algebraic coordinates. The known P3 rule is also passed
+through the strict multi-generation validator as a regression control, but is
+not yet reconstructed by enumeration. Finite validity still does not prove
+novelty or aperiodicity.
+
+### Known-rule bank
+
+The bank has two deliberately separate layers:
+
+- the included `data/encyclopedia.tsv` snapshot indexes 257 Encyclopedia
+  pages, with titles, page URLs at the snapshot date, and classification tags;
+- `KnownTilingBank` fingerprints six locally encoded `TilingSystem` objects
+  linked to their corresponding Encyclopedia records.
+
+```sh
+./aper-search --list-known
+./aper-search --classify
+rg -i 'chair|rhomb|pinwheel' data/encyclopedia.tsv
+```
+
+`--classify` reports canonical equality with an encoded substitution rule. Its
+square control currently prints `no-exact-match`; that means only that it is
+absent from the six-rule executable bank, not that the periodic square grid is
+new. Names, refinements, projected presentations, MLD equivalence, and
+aperiodicity require broader analysis.
+
+Refresh the metadata snapshot with one network request:
+
+```sh
+make encyclopedia-bank
+```
+
+The Encyclopedia provides diagrams rather than machine-readable child
+transforms. Its metadata snapshot is therefore reference-only; a page enters
+the executable bank only after its rule is reconstructed independently and
+passes structural validation. Literal partition rules can additionally pass
+`GeometricValidator`; projection-based presentation systems may contain
+overlapping construction pieces by design. The snapshot has its own attribution
+and CC BY-NC-SA 2.0 notice in `data/encyclopedia.NOTICE.md`; the `aper` code
+remains ISC-licensed. Because that licence is non-commercial and share-alike,
+the data is installed only on request with `make install-encyclopedia`.
 
 ## Designs
 
@@ -101,6 +180,19 @@ not silently hidden.
 | :---: | :---: |
 | ![Clipped P1 pentagon-boat-star patch](doc/aper-p1-patch-flare.png) | ![Six P1 parent-to-replacement rules](doc/aper-p1-rules-flare.png) |
 | `./aper -t p1 -n 5 > p1.pdf` | `./aper -t p1 --rule > p1-rules.pdf` |
+
+### Further substitution rules
+
+| P2 kite-and-dart · Flare | P3 rhombs · Electric |
+| :---: | :---: |
+| ![P2 Robinson-triangle substitution rules](doc/aper-p2-rules-flare.png) | ![P3 Robinson-triangle substitution rules](doc/aper-p3-rules-electric.png) |
+| `./aper -t p2 --rule -c flare > p2-rules.pdf` | `./aper -t p3 --rule -c electric > p3-rules.pdf` |
+| Ammann–Beenker · Grove | Pinwheel · Tide |
+| ![Ammann–Beenker substitution rules](doc/aper-ammann-beenker-rules-grove.png) | ![Pinwheel substitution rule](doc/aper-pinwheel-rules-tide.png) |
+| `./aper -t ammann-beenker --rule -c grove > ab-rules.pdf` | `./aper -t pinwheel --rule -c tide > pinwheel-rule.pdf` |
+| Stampfli 12-fold 1 · Flare | Square search control · Electric |
+| ![Stampfli 12-fold substitution rules](doc/aper-stampfli-rules-flare.png) | ![Square subdivision discovered by aper-search](doc/aper-search-square-rule-electric.png) |
+| `./aper -t stampfli --rule -c flare > stampfli-rules.pdf` | `./aper-search --rule -c electric > square-rule.pdf` |
 
 ### Eightfold, pinwheel, and twelvefold designs
 
@@ -171,14 +263,20 @@ and depth limits. Arbitrary discovered polygons use the unspecialised
 identity. Projection objects assemble construction triangles into familiar
 visible tiles only for patch presentation.
 
-A candidate can retain every structural validation diagnostic before a
-catalogue accepts it, and catalogue references remain stable as more candidates
-are appended. A future search tool can therefore construct, inspect, validate,
-iterate, and render systems without adding another family switch. The current
-validator covers identifiers, finite non-degenerate boundaries, references,
-uniform contraction, seeds, and depth limits. Discovery work can add stronger
-tests for simple polygons, area, overlaps, gaps, matching edges, and incidence
-without changing the rendering API.
+A candidate retains every structural validation diagnostic before a catalogue
+accepts it, and catalogue references remain stable as more candidates are
+appended. `DiscoveryEngine` accepts candidates incrementally from a
+`CandidateSource`, applies incidence and area tests, invokes the stricter
+`GeometricValidator`, checks several generations, and removes duplicate
+`canonical_key()` serialisations. Generated candidates, accepted candidates,
+and expanded tiles all have independent bounds. The strict validator remains
+search-only: presentation systems may legitimately use overlapping
+construction pieces that are projected or deduplicated later.
+
+Each encoded system also carries structured `SourceReference` provenance.
+`KnownTilingBank` builds an in-memory canonical-key index over catalogue-owned
+systems, so discovery can reject exact rediscoveries without coupling geometry
+to the separately licensed website snapshot.
 
 P1 uses the six-tile
 pentagonal inflation with a golden-ratio-squared linear factor; P2 and P3 use

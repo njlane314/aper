@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+
+"""Refresh aper's metadata-only Tilings Encyclopedia reference bank."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import pathlib
+import re
+import tempfile
+import urllib.request
+from html.parser import HTMLParser
+from typing import Optional
+
+
+SOURCE = "https://tilings.math.uni-bielefeld.de/substitution/"
+LICENCE = "https://creativecommons.org/licenses/by-nc-sa/2.0/"
+REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
+DEFAULT_OUTPUT = REPOSITORY / "data" / "encyclopedia.tsv"
+LOCAL_SYSTEMS = {
+    "ammann-beenker-rhomb-triangle": "ammann-beenker",
+    "penrose-kite-dart": "p2",
+    "penrose-pentagon-boat-star": "p1",
+    "penrose-rhomb": "p3",
+    "pinwheel": "pinwheel",
+    "stampflis-12-fold-1": "stampfli",
+}
+
+
+def normalise(text: str) -> str:
+    return " ".join(text.split())
+
+
+class CatalogueParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.entries: list[dict[str, object]] = []
+        self.current: Optional[dict[str, object]] = None
+        self.card_depth = 0
+        self.capture_title = False
+        self.capture_badge = False
+        self.text: list[str] = []
+
+    def handle_starttag(
+        self, tag: str, attributes: list[tuple[str, Optional[str]]]
+    ) -> None:
+        attrs = {name: value or "" for name, value in attributes}
+        classes = set(attrs.get("class", "").split())
+        if tag == "div" and "substitution-list-entry" in classes:
+            if self.current is not None:
+                raise ValueError("nested substitution catalogue entry")
+            self.current = {"slug": "", "title": "", "tags": []}
+            self.card_depth = 1
+            return
+        if self.current is None:
+            return
+        if tag == "div":
+            self.card_depth += 1
+        if tag == "a" and "no-highlight-link" in classes:
+            prefix = "/substitution/"
+            path = attrs.get("href", "")
+            if path.startswith(prefix):
+                self.current["slug"] = path.removeprefix(prefix).strip("/")
+        if tag == "span" and "substitution-list-entry-title" in classes:
+            self.capture_title = True
+            self.text = []
+        elif tag == "span" and "badge" in classes:
+            self.capture_badge = True
+            self.text = []
+
+    def handle_data(self, data: str) -> None:
+        if self.capture_title or self.capture_badge:
+            self.text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.current is None:
+            return
+        if tag == "span" and self.capture_title:
+            self.current["title"] = normalise("".join(self.text))
+            self.capture_title = False
+            self.text = []
+        elif tag == "span" and self.capture_badge:
+            tag_name = normalise("".join(self.text))
+            if tag_name:
+                tags = self.current["tags"]
+                assert isinstance(tags, list)
+                tags.append(tag_name)
+            self.capture_badge = False
+            self.text = []
+        if tag == "div":
+            self.card_depth -= 1
+            if self.card_depth == 0:
+                slug = self.current["slug"]
+                title = self.current["title"]
+                if not slug or not title:
+                    raise ValueError("catalogue entry has no slug or title")
+                self.entries.append(self.current)
+                self.current = None
+
+
+def fetch() -> tuple[str, str, str]:
+    request = urllib.request.Request(
+        SOURCE,
+        headers={
+            "User-Agent": "aper-encyclopedia-bank/0.8 "
+            "(https://github.com/njlane314/aper)"
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        if response.geturl().rstrip("/") + "/" != SOURCE:
+            raise ValueError("catalogue redirected away from its canonical URL")
+        document = response.read().decode(
+            response.headers.get_content_charset() or "utf-8"
+        )
+        return (
+            document,
+            response.headers.get("Last-Modified", ""),
+            response.headers.get("ETag", ""),
+        )
+
+
+def parse(document: str) -> list[dict[str, object]]:
+    if LICENCE not in document:
+        raise ValueError("catalogue no longer advertises the expected licence")
+    parser = CatalogueParser()
+    parser.feed(document)
+    parser.close()
+    entries = sorted(parser.entries, key=lambda entry: str(entry["slug"]))
+    if len(entries) < 250:
+        raise ValueError(
+            f"catalogue yielded only {len(entries)} entries; refusing partial update"
+        )
+    slugs = [str(entry["slug"]) for entry in entries]
+    invalid_slugs = [
+        slug
+        for slug in slugs
+        if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", slug) is None
+    ]
+    if invalid_slugs:
+        raise ValueError("catalogue contains an invalid slug: " + invalid_slugs[0])
+    if len(slugs) != len(set(slugs)):
+        raise ValueError("catalogue contains duplicate slugs")
+    for entry in entries:
+        tags = entry["tags"]
+        assert isinstance(tags, list)
+        if any("|" in str(tag) for tag in tags):
+            raise ValueError("catalogue tag contains the TSV separator")
+    missing = sorted(set(LOCAL_SYSTEMS) - set(slugs))
+    if missing:
+        raise ValueError("catalogue is missing local mappings: " + ", ".join(missing))
+    return entries
+
+
+def render(
+    entries: list[dict[str, object]], last_modified: str = "", etag: str = ""
+) -> str:
+    lines = [
+        "# aper encyclopedia reference bank v1",
+        f"# source: {SOURCE}",
+        "# attribution: D. Frettlöh, F. Gähler, E. Harriss: Tilings Encyclopedia",
+        f"# licence: {LICENCE}",
+        "# changes: whitespace normalised, records sorted by slug, aper ids added",
+        "# aper_system: - denotes a reference-only record",
+    ]
+    if last_modified:
+        lines.append(f"# source-last-modified: {last_modified}")
+    if etag:
+        lines.append(f"# source-etag: {etag}")
+    lines.append(f"# records: {len(entries)}")
+    lines.append("slug\ttitle\turl\ttags\taper_system")
+    for entry in entries:
+        slug = str(entry["slug"])
+        title = str(entry["title"])
+        tags = entry["tags"]
+        assert isinstance(tags, list)
+        fields = [
+            slug,
+            title,
+            SOURCE + slug + "/",
+            "|".join(str(tag) for tag in tags),
+            LOCAL_SYSTEMS.get(slug, "-"),
+        ]
+        if any("\t" in field or "\n" in field for field in fields):
+            raise ValueError(f"record {slug} contains a TSV control character")
+        lines.append("\t".join(fields))
+    return "\n".join(lines) + "\n"
+
+
+def write_atomic(path: pathlib.Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=path.parent, delete=False
+    ) as temporary:
+        temporary.write(content)
+        temporary_path = pathlib.Path(temporary.name)
+    os.chmod(temporary_path, 0o644)
+    os.replace(temporary_path, path)
+
+
+def main() -> int:
+    argument_parser = argparse.ArgumentParser(description=__doc__)
+    argument_parser.add_argument(
+        "--input",
+        type=pathlib.Path,
+        help="parse a saved copy of the official catalogue instead",
+    )
+    argument_parser.add_argument(
+        "--output", type=pathlib.Path, default=DEFAULT_OUTPUT
+    )
+    arguments = argument_parser.parse_args()
+    if arguments.input is not None:
+        document = arguments.input.read_text(encoding="utf-8")
+        last_modified = ""
+        etag = ""
+    else:
+        document, last_modified, etag = fetch()
+    entries = parse(document)
+    write_atomic(arguments.output, render(entries, last_modified, etag))
+    print(f"wrote {len(entries)} references to {arguments.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
