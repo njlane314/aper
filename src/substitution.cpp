@@ -1,4 +1,5 @@
-#include "substitution.hpp"
+#include "penrose.hpp"
+#include "system.hpp"
 
 #include <algorithm>
 #include <array>
@@ -49,19 +50,6 @@ struct QuantisedPoint {
     auto operator<=>(const QuantisedPoint&) const = default;
 };
 
-struct StateKey {
-    Kind kind;
-    std::size_t size;
-    std::array<QuantisedPoint, 4> vertices;
-
-    auto operator<=>(const StateKey&) const = default;
-};
-
-struct KeyedState {
-    StateKey key;
-    State state;
-};
-
 struct EdgeKey {
     QuantisedPoint first;
     QuantisedPoint second;
@@ -81,27 +69,15 @@ struct PinwheelTriangle {
     Point r;
 };
 
-[[nodiscard]] Point apply(const Similarity& transform, Point point) {
+Point apply(const Similarity& transform, Point point) {
     if (transform.reflected) {
         point = std::conj(point);
     }
     return transform.translation + transform.multiplier * point;
 }
 
-[[nodiscard]] Similarity compose(const Similarity& outer,
-                                 const Similarity& inner) {
-    const auto inner_multiplier =
-        outer.reflected ? std::conj(inner.multiplier) : inner.multiplier;
-    return {
-        apply(outer, inner.translation),
-        outer.multiplier * inner_multiplier,
-        outer.reflected != inner.reflected,
-    };
-}
-
-[[nodiscard]] Similarity placement(Point translation, double degrees,
-                                   double scale = 1.0,
-                                   bool reflected = false) {
+Similarity placement(Point translation, double degrees, double scale = 1.0,
+                     bool reflected = false) {
     return {
         translation,
         std::polar(scale, degrees * std::numbers::pi / 180.0),
@@ -109,12 +85,11 @@ struct PinwheelTriangle {
     };
 }
 
-[[nodiscard]] State child(Kind kind, double x, double y, double degrees,
-                          double scale) {
+State child(Kind kind, double x, double y, double degrees, double scale) {
     return {kind, placement(scale * Point{x, y}, degrees, scale)};
 }
 
-[[nodiscard]] Polygon canonical_polygon(Kind kind) {
+Polygon canonical_polygon(Kind kind) {
     constexpr Point origin{};
     constexpr Point one{1.0, 0.0};
     constexpr Point imaginary{0.0, 1.0};
@@ -143,7 +118,7 @@ struct PinwheelTriangle {
     throw std::invalid_argument("unknown straight-edged prototile");
 }
 
-[[nodiscard]] Polygon transformed_polygon(const State& state) {
+Polygon transformed_polygon(const State& state) {
     auto polygon = canonical_polygon(state.kind);
     for (std::size_t i = 0; i < polygon.size; ++i) {
         polygon.vertices[i] = apply(state.pose, polygon.vertices[i]);
@@ -151,14 +126,14 @@ struct PinwheelTriangle {
     return polygon;
 }
 
-[[nodiscard]] QuantisedPoint quantise(Point point) {
+QuantisedPoint quantise(Point point) {
     return {
         std::llround(point.real() * quantisation),
         std::llround(point.imag() * quantisation),
     };
 }
 
-[[nodiscard]] EdgeKey edge_key(Point first, Point second) {
+EdgeKey edge_key(Point first, Point second) {
     auto a = quantise(first);
     auto b = quantise(second);
     if (b < a) {
@@ -167,42 +142,11 @@ struct PinwheelTriangle {
     return {a, b};
 }
 
-[[nodiscard]] StateKey state_key(const State& state) {
-    const auto polygon = transformed_polygon(state);
-    std::array<QuantisedPoint, 4> vertices{};
-    for (std::size_t i = 0; i < polygon.size; ++i) {
-        vertices[i] = quantise(polygon.vertices[i]);
-    }
-    std::sort(vertices.begin(), vertices.begin() +
-                                    static_cast<std::ptrdiff_t>(polygon.size));
-    return {state.kind, polygon.size, vertices};
-}
-
-void deduplicate(std::vector<State>& states) {
-    std::vector<KeyedState> keyed;
-    keyed.reserve(states.size());
-    for (auto& state : states) {
-        keyed.push_back({state_key(state), std::move(state)});
-    }
-    std::sort(keyed.begin(), keyed.end(), [](const auto& lhs, const auto& rhs) {
-        return lhs.key < rhs.key;
-    });
-
-    states.clear();
-    states.reserve(keyed.size());
-    for (std::size_t i = 0; i < keyed.size(); ++i) {
-        if (i != 0 && keyed[i].key == keyed[i - 1].key) {
-            continue;
-        }
-        states.push_back(std::move(keyed[i].state));
-    }
-}
-
-[[nodiscard]] double cross(Point first, Point second) {
+double cross(Point first, Point second) {
     return first.real() * second.imag() - first.imag() * second.real();
 }
 
-[[nodiscard]] double signed_area(std::span<const Point> vertices) {
+double signed_area(std::span<const Point> vertices) {
     double twice_area = 0.0;
     for (std::size_t i = 0; i < vertices.size(); ++i) {
         twice_area += cross(vertices[i], vertices[(i + 1) % vertices.size()]);
@@ -222,7 +166,7 @@ void canonicalise(std::vector<Point>& vertices) {
     std::rotate(vertices.begin(), first, vertices.end());
 }
 
-[[nodiscard]] Point centre(const Tile& tile) {
+Point centre(const Tile& tile) {
     Point result{};
     for (const auto vertex : tile.vertices) {
         result += vertex;
@@ -239,7 +183,7 @@ void sort_tiles(std::vector<Tile>& tiles) {
     });
 }
 
-[[nodiscard]] std::span<const State> ammann_rule(Kind kind) {
+std::span<const State> ammann_rule(Kind kind) {
     const auto sqrt_two = std::sqrt(2.0);
     const auto d = 1.0 / sqrt_two;
     const auto inflation = 1.0 + sqrt_two;
@@ -284,7 +228,7 @@ void sort_tiles(std::vector<Tile>& tiles) {
     throw std::invalid_argument("non-Ammann tile in Ammann-Beenker rule");
 }
 
-[[nodiscard]] std::span<const State> stampfli_rule(Kind kind) {
+std::span<const State> stampfli_rule(Kind kind) {
     const auto root_three = std::sqrt(3.0);
     const auto scale = 2.0 - root_three;
     const auto half_root = root_three / 2.0;
@@ -388,27 +332,7 @@ void sort_tiles(std::vector<Tile>& tiles) {
     throw std::invalid_argument("non-Stampfli tile in Stampfli rule");
 }
 
-template <typename Rule>
-void substitute(std::vector<State>& states, Rule rule, bool remove_duplicates) {
-    std::size_t count = 0;
-    for (const auto& state : states) {
-        count += rule(state.kind).size();
-    }
-
-    std::vector<State> children;
-    children.reserve(count);
-    for (const auto& state : states) {
-        for (const auto& local : rule(state.kind)) {
-            children.push_back({local.kind, compose(state.pose, local.pose)});
-        }
-    }
-    if (remove_duplicates) {
-        deduplicate(children);
-    }
-    states = std::move(children);
-}
-
-[[nodiscard]] std::vector<State> ammann_seed(Seed seed) {
+std::vector<State> ammann_seed(Seed seed) {
     if (seed == Seed::square) {
         return {
             {Kind::ammann_a, {}},
@@ -422,15 +346,14 @@ void substitute(std::vector<State>& states, Rule rule, bool remove_duplicates) {
         std::vector<State> states;
         states.reserve(8);
         for (int turn = 0; turn < 8; ++turn) {
-            states.push_back(
-                {Kind::ammann_rhomb, placement({}, 45.0 * turn)});
+            states.push_back({Kind::ammann_rhomb, placement({}, 45.0 * turn)});
         }
         return states;
     }
     throw std::invalid_argument("seed is not available for Ammann-Beenker");
 }
 
-[[nodiscard]] std::vector<Tile> ammann_tiles(std::span<const State> states) {
+std::vector<Tile> ammann_tiles(std::span<const State> states) {
     std::vector<Tile> tiles;
     std::vector<IndexedTriangle> triangles;
     for (const auto& state : states) {
@@ -439,20 +362,19 @@ void substitute(std::vector<State>& states, Rule rule, bool remove_duplicates) {
             std::vector<Point> vertices(polygon.vertices.begin(),
                                         polygon.vertices.begin() + 4);
             canonicalise(vertices);
-            tiles.push_back(
-                {Shape::ammann_rhomb, std::move(vertices), maximum_fill});
+            tiles.push_back({Shape::ammann_rhomb, std::move(vertices), maximum_fill});
             continue;
         }
-        triangles.push_back({edge_key(polygon.vertices[1], polygon.vertices[2]),
-                             state});
+        triangles.push_back(
+            {edge_key(polygon.vertices[1], polygon.vertices[2]), state});
     }
 
-    std::sort(triangles.begin(), triangles.end(), [](const auto& lhs, const auto& rhs) {
-        return lhs.seam < rhs.seam;
-    });
+    std::sort(triangles.begin(), triangles.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.seam < rhs.seam; });
     for (std::size_t first = 0; first < triangles.size();) {
         auto last = first + 1;
-        while (last < triangles.size() && triangles[last].seam == triangles[first].seam) {
+        while (last < triangles.size() &&
+               triangles[last].seam == triangles[first].seam) {
             ++last;
         }
         if (last - first > 2) {
@@ -474,8 +396,8 @@ void substitute(std::vector<State>& states, Rule rule, bool remove_duplicates) {
             }
             const auto negative = side_a < 0.0 ? a.vertices[0] : b.vertices[0];
             const auto positive = side_a > 0.0 ? a.vertices[0] : b.vertices[0];
-            std::vector<Point> vertices{
-                a.vertices[1], negative, a.vertices[2], positive};
+            std::vector<Point> vertices{a.vertices[1], negative, a.vertices[2],
+                                        positive};
             canonicalise(vertices);
             tiles.push_back({Shape::square, std::move(vertices), 0});
         }
@@ -485,15 +407,7 @@ void substitute(std::vector<State>& states, Rule rule, bool remove_duplicates) {
     return tiles;
 }
 
-[[nodiscard]] std::vector<Tile> generate_ammann(Seed seed, unsigned depth) {
-    auto states = ammann_seed(seed);
-    for (unsigned generation = 0; generation < depth; ++generation) {
-        substitute(states, ammann_rule, false);
-    }
-    return ammann_tiles(states);
-}
-
-[[nodiscard]] std::vector<PinwheelTriangle>
+std::vector<PinwheelTriangle>
 subdivide_pinwheel(std::span<const PinwheelTriangle> triangles) {
     std::vector<PinwheelTriangle> children;
     children.reserve(5 * triangles.size());
@@ -511,36 +425,14 @@ subdivide_pinwheel(std::span<const PinwheelTriangle> triangles) {
     return children;
 }
 
-[[nodiscard]] std::uint8_t pinwheel_fill(const PinwheelTriangle& triangle) {
+std::uint8_t pinwheel_fill(const PinwheelTriangle& triangle) {
     const auto theta = std::arg(triangle.q - triangle.p);
     const auto blend = (1.0 - std::cos(4.0 * theta)) / 2.0;
     return static_cast<std::uint8_t>(
         std::llround(static_cast<double>(maximum_fill) * blend));
 }
 
-[[nodiscard]] std::vector<Tile> generate_pinwheel(Seed seed, unsigned depth) {
-    if (seed != Seed::triangle) {
-        throw std::invalid_argument("seed is not available for Pinwheel");
-    }
-    std::vector<PinwheelTriangle> triangles{{{0.0, 0.0}, {2.0, 0.0},
-                                              {2.0, 1.0}}};
-    for (unsigned generation = 0; generation < depth; ++generation) {
-        triangles = subdivide_pinwheel(triangles);
-    }
-
-    std::vector<Tile> tiles;
-    tiles.reserve(triangles.size());
-    for (const auto& triangle : triangles) {
-        std::vector<Point> vertices{triangle.p, triangle.q, triangle.r};
-        canonicalise(vertices);
-        tiles.push_back(
-            {Shape::pinwheel_triangle, std::move(vertices), pinwheel_fill(triangle)});
-    }
-    sort_tiles(tiles);
-    return tiles;
-}
-
-[[nodiscard]] std::vector<State> stampfli_seed(Seed seed) {
+std::vector<State> stampfli_seed(Seed seed) {
     if (seed == Seed::triangle) {
         return {{Kind::stampfli_triangle, {}}};
     }
@@ -554,79 +446,235 @@ subdivide_pinwheel(std::span<const PinwheelTriangle> triangles) {
         std::vector<State> states;
         states.reserve(12);
         for (int turn = 0; turn < 12; ++turn) {
-            states.push_back(
-                {Kind::stampfli_rhomb, placement({}, 30.0 * turn)});
+            states.push_back({Kind::stampfli_rhomb, placement({}, 30.0 * turn)});
         }
         return states;
     }
     throw std::invalid_argument("seed is not available for Stampfli 12-fold 1");
 }
 
-[[nodiscard]] std::vector<Tile> generate_stampfli(Seed seed, unsigned depth) {
-    auto states = stampfli_seed(seed);
-    for (unsigned generation = 0; generation < depth; ++generation) {
-        substitute(states, stampfli_rule, true);
-    }
+std::vector<Point> polygon_vertices(Kind kind) {
+    const auto polygon = canonical_polygon(kind);
+    return {polygon.vertices.begin(),
+            polygon.vertices.begin() + static_cast<std::ptrdiff_t>(polygon.size)};
+}
 
-    std::vector<Tile> tiles;
-    tiles.reserve(states.size());
+aper::Similarity public_similarity(const Similarity& similarity) {
+    return {similarity.translation, similarity.multiplier, similarity.reflected};
+}
+
+Similarity private_similarity(const aper::Similarity& similarity) {
+    return {similarity.translation(), similarity.multiplier(), similarity.reflected()};
+}
+
+PrototileId ammann_id(Kind kind) {
+    switch (kind) {
+    case Kind::ammann_a:
+        return 0;
+    case Kind::ammann_b:
+        return 1;
+    case Kind::ammann_rhomb:
+        return 2;
+    case Kind::stampfli_triangle:
+    case Kind::stampfli_rhomb:
+    case Kind::stampfli_square:
+        break;
+    }
+    throw std::invalid_argument("kind is not an Ammann-Beenker prototile");
+}
+
+Kind ammann_kind(PrototileId id) {
+    switch (id) {
+    case 0:
+        return Kind::ammann_a;
+    case 1:
+        return Kind::ammann_b;
+    case 2:
+        return Kind::ammann_rhomb;
+    default:
+        throw std::invalid_argument("unknown Ammann-Beenker prototile");
+    }
+}
+
+PrototileId stampfli_id(Kind kind) {
+    switch (kind) {
+    case Kind::stampfli_triangle:
+        return 0;
+    case Kind::stampfli_rhomb:
+        return 1;
+    case Kind::stampfli_square:
+        return 2;
+    case Kind::ammann_a:
+    case Kind::ammann_b:
+    case Kind::ammann_rhomb:
+        break;
+    }
+    throw std::invalid_argument("kind is not a Stampfli prototile");
+}
+
+Patch state_patch(std::span<const State> states, PrototileId (*id)(Kind)) {
+    std::vector<Placement> placements;
+    placements.reserve(states.size());
     for (const auto& state : states) {
-        const auto polygon = transformed_polygon(state);
-        std::vector<Point> vertices(
-            polygon.vertices.begin(),
-            polygon.vertices.begin() + static_cast<std::ptrdiff_t>(polygon.size));
-        canonicalise(vertices);
-        switch (state.kind) {
-        case Kind::stampfli_triangle:
-            tiles.push_back(
-                {Shape::equilateral_triangle, std::move(vertices), maximum_fill});
-            break;
-        case Kind::stampfli_rhomb:
-            tiles.push_back({Shape::stampfli_rhomb, std::move(vertices),
-                             static_cast<std::uint8_t>((maximum_fill + 1) / 2)});
-            break;
-        case Kind::stampfli_square:
-            tiles.push_back({Shape::square, std::move(vertices), 0});
-            break;
-        case Kind::ammann_a:
-        case Kind::ammann_b:
-        case Kind::ammann_rhomb:
-            throw std::runtime_error("Ammann tile in Stampfli output");
+        placements.push_back({id(state.kind), public_similarity(state.pose)});
+    }
+    return Patch{std::move(placements)};
+}
+
+class AmmannProjector final : public PatchProjector {
+  public:
+    std::vector<Tile> project(const TilingSystem&, const Patch& patch) const override {
+        std::vector<State> states;
+        states.reserve(patch.size());
+        for (const auto& placement : patch.placements()) {
+            states.push_back(
+                {ammann_kind(placement.prototile), private_similarity(placement.pose)});
+        }
+        return ammann_tiles(states);
+    }
+};
+
+Placement pinwheel_placement(const Prototile& prototile,
+                             const PinwheelTriangle& triangle) {
+    const std::array target{triangle.p, triangle.q, triangle.r};
+    for (const auto reflected : {false, true}) {
+        std::array<Point, 3> source{};
+        for (std::size_t i = 0; i < source.size(); ++i) {
+            source[i] =
+                reflected ? std::conj(prototile.boundary[i]) : prototile.boundary[i];
+        }
+        const auto multiplier = (target[1] - target[0]) / (source[1] - source[0]);
+        const auto translation = target[0] - multiplier * source[0];
+        if (std::abs(translation + multiplier * source[2] - target[2]) < 1.0e-8) {
+            return {prototile.id, aper::Similarity{translation, multiplier, reflected}};
         }
     }
-    sort_tiles(tiles);
-    return tiles;
+    throw std::runtime_error("triangle is not similar to the pinwheel prototile");
+}
+
+class PinwheelProjector final : public PatchProjector {
+  public:
+    std::vector<Tile> project(const TilingSystem& system,
+                              const Patch& patch) const override {
+        std::vector<Tile> tiles;
+        tiles.reserve(patch.size());
+        for (const auto& placement : patch.placements()) {
+            const auto& prototile = system.prototile(placement.prototile);
+            if (prototile.id != 0 || prototile.boundary.size() != 3) {
+                throw std::runtime_error(
+                    "non-pinwheel prototile in pinwheel projection");
+            }
+            PinwheelTriangle triangle{
+                placement.pose.apply(prototile.boundary[0]),
+                placement.pose.apply(prototile.boundary[1]),
+                placement.pose.apply(prototile.boundary[2]),
+            };
+            std::vector<Point> vertices{triangle.p, triangle.q, triangle.r};
+            canonicalise(vertices);
+            tiles.push_back({Shape::pinwheel_triangle, std::move(vertices),
+                             pinwheel_fill(triangle)});
+        }
+        sort_tiles(tiles);
+        return tiles;
+    }
+};
+
+TilingSystem make_ammann_system() {
+    std::vector<Prototile> prototiles{
+        {0, "triangle-a", Shape::ammann_triangle_a, polygon_vertices(Kind::ammann_a),
+         0},
+        {1, "triangle-b", Shape::ammann_triangle_b, polygon_vertices(Kind::ammann_b),
+         maximum_fill},
+        {2, "rhomb", Shape::ammann_rhomb, polygon_vertices(Kind::ammann_rhomb),
+         static_cast<std::uint8_t>((maximum_fill + 1) / 2)},
+    };
+    std::vector<RuleEntry> rules;
+    for (const auto kind : {Kind::ammann_a, Kind::ammann_b, Kind::ammann_rhomb}) {
+        rules.push_back({ammann_id(kind), state_patch(ammann_rule(kind), ammann_id)});
+    }
+    std::vector<SeedPatch> seeds{
+        {"octagon", state_patch(ammann_seed(Seed::octagon), ammann_id), 1},
+        {"square", state_patch(ammann_seed(Seed::square), ammann_id), 1},
+        {"rhomb", state_patch(ammann_seed(Seed::rhomb), ammann_id), 1},
+    };
+    return {
+        {"ammann-beenker",
+         "Ammann-Beenker",
+         {"ab"},
+         "octagon",
+         {minimum_depth, default_ammann_beenker_depth, maximum_ammann_beenker_depth}},
+        std::move(prototiles),
+        SubstitutionRule{1.0 + std::sqrt(2.0), std::move(rules)},
+        std::move(seeds),
+        std::make_shared<const AmmannProjector>(),
+    };
+}
+
+TilingSystem make_pinwheel_system() {
+    const PinwheelTriangle parent{{0.0, 0.0}, {2.0, 0.0}, {2.0, 1.0}};
+    Prototile prototile{
+        0, "triangle", Shape::pinwheel_triangle, {parent.p, parent.q, parent.r}, 0,
+    };
+    const std::array parents{parent};
+    std::vector<Placement> children;
+    for (const auto& child : subdivide_pinwheel(parents)) {
+        children.push_back(pinwheel_placement(prototile, child));
+    }
+    return {
+        {"pinwheel",
+         "Pinwheel",
+         {},
+         "triangle",
+         {minimum_depth, default_pinwheel_depth, maximum_pinwheel_depth}},
+        {prototile},
+        SubstitutionRule{std::sqrt(5.0), {{0, Patch{std::move(children)}}}},
+        {{"triangle", Patch{{Placement{0, {}}}}, 1}},
+        std::make_shared<const PinwheelProjector>(),
+    };
+}
+
+TilingSystem make_stampfli_system() {
+    std::vector<Prototile> prototiles{
+        {0, "triangle", Shape::equilateral_triangle,
+         polygon_vertices(Kind::stampfli_triangle), maximum_fill},
+        {1, "rhomb", Shape::stampfli_rhomb, polygon_vertices(Kind::stampfli_rhomb),
+         static_cast<std::uint8_t>((maximum_fill + 1) / 2)},
+        {2, "square", Shape::square, polygon_vertices(Kind::stampfli_square), 0},
+    };
+    std::vector<RuleEntry> rules;
+    for (const auto kind :
+         {Kind::stampfli_triangle, Kind::stampfli_rhomb, Kind::stampfli_square}) {
+        rules.push_back(
+            {stampfli_id(kind), state_patch(stampfli_rule(kind), stampfli_id)});
+    }
+    std::vector<SeedPatch> seeds{
+        {"dodecagon", state_patch(stampfli_seed(Seed::dodecagon), stampfli_id), 1},
+        {"triangle", state_patch(stampfli_seed(Seed::triangle), stampfli_id), 1},
+        {"square", state_patch(stampfli_seed(Seed::square), stampfli_id), 1},
+        {"rhomb", state_patch(stampfli_seed(Seed::rhomb), stampfli_id), 1},
+    };
+    return {
+        {"stampfli",
+         "Stampfli 12-fold 1",
+         {"stampfli-12-fold-1"},
+         "dodecagon",
+         {minimum_depth, default_stampfli_depth, maximum_stampfli_depth}},
+        std::move(prototiles),
+        SubstitutionRule{2.0 + std::sqrt(3.0), std::move(rules), true},
+        std::move(seeds),
+        identity_projector(),
+    };
 }
 
 } // namespace
 
-std::vector<Tile> generate_straight_tiles(Tiling tiling, Seed seed,
-                                          unsigned depth) {
-    switch (tiling) {
-    case Tiling::ammann_beenker:
-        if (depth > maximum_ammann_beenker_depth) {
-            throw std::invalid_argument(
-                "Ammann-Beenker subdivision depth exceeds the supported limit");
-        }
-        return generate_ammann(seed, depth);
-    case Tiling::pinwheel:
-        if (depth > maximum_pinwheel_depth) {
-            throw std::invalid_argument(
-                "Pinwheel subdivision depth exceeds the supported limit");
-        }
-        return generate_pinwheel(seed, depth);
-    case Tiling::stampfli:
-        if (depth > maximum_stampfli_depth) {
-            throw std::invalid_argument(
-                "Stampfli 12-fold 1 subdivision depth exceeds the supported limit");
-        }
-        return generate_stampfli(seed, depth);
-    case Tiling::p1:
-    case Tiling::p2:
-    case Tiling::p3:
-        break;
-    }
-    throw std::invalid_argument("tiling does not use straight-prototile rules");
+std::vector<TilingSystem> make_straight_systems() {
+    std::vector<TilingSystem> systems;
+    systems.reserve(3);
+    systems.push_back(make_ammann_system());
+    systems.push_back(make_pinwheel_system());
+    systems.push_back(make_stampfli_system());
+    return systems;
 }
 
 } // namespace aper::detail

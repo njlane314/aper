@@ -19,7 +19,7 @@ CPPFLAGS += -isystem $(MACOS_SDK_PATH)/usr/include/c++/v1
 endif
 endif
 
-SOURCES = src/main.cpp src/penrose.cpp src/substitution.cpp src/pdf.cpp
+SOURCES = src/main.cpp src/system.cpp src/penrose.cpp src/substitution.cpp src/view.cpp src/pdf.cpp
 OBJECTS = $(SOURCES:src/%.cpp=$(BUILD)/%.o)
 DEPS = $(OBJECTS:.o=.d) $(BUILD)/test.d
 
@@ -36,7 +36,7 @@ $(BUILD)/%.o: src/%.cpp | $(BUILD)
 $(BUILD)/test.o: tests/test.cpp | $(BUILD)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(WARNINGS) $(STANDARD) -Isrc -MMD -MP -c $< -o $@
 
-$(BUILD)/aper-test: $(BUILD)/test.o $(BUILD)/penrose.o $(BUILD)/substitution.o $(BUILD)/pdf.o
+$(BUILD)/aper-test: $(BUILD)/test.o $(BUILD)/system.o $(BUILD)/penrose.o $(BUILD)/substitution.o $(BUILD)/view.o $(BUILD)/pdf.o
 	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILD):
@@ -45,15 +45,20 @@ $(BUILD):
 check: $(PROGRAM) $(BUILD)/aper-test
 	./$(BUILD)/aper-test
 	@./$(PROGRAM) -h | grep -q '^usage: aper'
-	@./$(PROGRAM) -h | grep -q 'ammann-beenker, pinwheel'
+	@./$(PROGRAM) -h | grep -q 'ammann-beenker: Ammann-Beenker'
 	@./$(PROGRAM) -h | grep -q 'stampfli-12-fold-1'
 	@./$(PROGRAM) -h | grep -q 'thin requires depth 2+'
-	@./$(PROGRAM) -V | grep -q '^aper 0\.6\.0$$'
+	@./$(PROGRAM) -h | grep -q -- '--rule'
+	@./$(PROGRAM) -V | grep -q '^aper 0\.7\.0$$'
 	@./$(PROGRAM) | grep -a -q '/Subject (sun seed at depth 7;'
-	@./$(PROGRAM) -t p1 | grep -a -q '/Subject (pentagon-5 seed at depth 4;'
+	@./$(PROGRAM) -t p1 | grep -a -q '/Subject (pentagon-5 seed at depth 5;'
 	@./$(PROGRAM) -t ammann-beenker | grep -a -q '/Subject (octagon seed at depth 4;'
 	@./$(PROGRAM) -t pinwheel | grep -a -q '/Subject (triangle seed at depth 6;'
 	@./$(PROGRAM) -t stampfli | grep -a -q '/Subject (dodecagon seed at depth 2;'
+	@for tiling in p1 p2 p3 ammann-beenker pinwheel stampfli; do \
+		./$(PROGRAM) -t $$tiling --rule | grep -a -q '/Title (.* substitution rule)' || exit 1; \
+	done
+	@./$(PROGRAM) -t p1 -r | grep -a -q '%%EOF'
 	@./$(PROGRAM) -t p1 -n 1 | grep -a -q '%%EOF'
 	@./$(PROGRAM) -t p1 -n 6 | grep -a -q '%%EOF'
 	@./$(PROGRAM) -t p2 -n 1 | grep -a -q '%%EOF'
@@ -129,6 +134,9 @@ check: $(PROGRAM) $(BUILD)/aper-test
 	@./$(PROGRAM) -t stampfli -n 4 2>&1 | grep -q 'Stampfli 12-fold 1 depth must be an integer from 1 to 3'
 	@if ./$(PROGRAM) -t p3 -s thin -n 1 >/dev/null 2>&1; then \
 		echo 'aper accepted an unrenderable thin seed depth' >&2; exit 1; \
+	fi
+	@if ./$(PROGRAM) --rule --depth 2 >/dev/null 2>&1; then \
+		echo 'aper accepted a patch-only option for rule output' >&2; exit 1; \
 	fi
 	@if ./$(PROGRAM) --seed >/dev/null 2>&1; then \
 		echo 'aper accepted a missing seed' >&2; exit 1; \

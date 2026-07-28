@@ -1,4 +1,4 @@
-.TH APER 1 "July 27, 2026" "aper" "User Commands"
+.TH APER 1 "July 28, 2026" "aper" "User Commands"
 .SH NAME
 aper \- render substitution tilings as PDF
 .SH SYNOPSIS
@@ -7,15 +7,16 @@ aper \- render substitution tilings as PDF
 .RB [ \-s " seed" ]
 .RB [ \-c " scheme" ]
 .RB [ \-n " depth" ]
+.RB [ \-r ]
 .br
 .BR aper " " { \-h | \-\-help }
 .br
 .BR aper " " { \-V | \-\-version }
 .SH DESCRIPTION
 .B aper
-generates a finite Penrose, Ammann-Beenker, Pinwheel, or Stampfli 12-fold 1
-tiling from a selected starting design and writes a complete native vector PDF
-to standard output.
+generates either a clipped, edge-to-edge Penrose, Ammann-Beenker, Pinwheel, or
+Stampfli 12-fold 1 tiling patch, or a sheet showing a tiling system's
+substitution rules, and writes a complete native vector PDF to standard output.
 Diagnostics are written to standard error, so the PDF can be redirected or
 piped without contamination.
 .SH OPTIONS
@@ -48,7 +49,7 @@ The default is
 .BR p3 .
 .TP
 .BR \-s ", " \-\-seed " " seed
-Select the starting design.
+Select the patch's starting design.
 P1 provides
 .BR pentagon-5 ,
 .BR pentagon-3 ,
@@ -111,12 +112,18 @@ The default is
 .BR flare .
 .TP
 .BR \-n ", " \-\-depth " " depth
-Set the number of substitutions.
-P1 accepts an integer from 1 through 6 and defaults to 4.
+Set the number of patch substitutions.
+P1 accepts an integer from 1 through 6 and defaults to 5.
 P2 and P3 accept an integer from 1 through 12 and default to 7.
 Ammann-Beenker accepts 1 through 6 and defaults to 4.
 Pinwheel accepts 1 through 8 and defaults to 6.
 Stampfli 12-fold 1 accepts 1 through 3 and defaults to 2.
+.TP
+.BR \-r ", " \-\-rule
+Render a sheet containing every prototile and its one-step substitution
+instead of a finite patch.
+The tiling and colour options still apply.
+The seed and depth options may not be used with rule output.
 .TP
 .BR \-h ", " \-\-help
 Print a concise help message and exit.
@@ -134,7 +141,7 @@ open tiling.pdf
 Render a P1 pentagon-5 patch using the flare colour scheme:
 .PP
 .EX
-aper -t p1 -s pentagon-5 -c flare -n 4 > p1.pdf
+aper -t p1 -s pentagon-5 -c flare -n 5 > p1.pdf
 .EE
 .PP
 Render a P2 queen patch using the electric colour scheme:
@@ -147,6 +154,12 @@ Render a Stampfli 12-fold 1 patch:
 .PP
 .EX
 aper -t stampfli -c flare -n 2 > stampfli.pdf
+.EE
+.PP
+Render the Pinwheel substitution rule:
+.PP
+.EX
+aper -t pinwheel --rule -c tide > pinwheel-rule.pdf
 .EE
 .SH EXIT STATUS
 .B aper
